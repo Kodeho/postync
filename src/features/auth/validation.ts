@@ -1,3 +1,5 @@
+import type { SignupPreservedValues } from "./state";
+
 /** Longueur minimale imposée par Supabase Auth par défaut. */
 export const PASSWORD_MIN_LENGTH = 8;
 
@@ -25,9 +27,23 @@ function normalizeEmail(raw: string): string {
   return raw.trim().toLowerCase();
 }
 
+/**
+ * Extrait les champs NON sensibles du formulaire d'inscription, tels qu'ils
+ * peuvent être renvoyés au navigateur après une erreur.
+ *
+ * Ne lit volontairement ni `password` ni `confirmPassword`.
+ */
+export function extractSignupPreservedValues(
+  form: FormData,
+): SignupPreservedValues {
+  return {
+    displayName: String(form.get("displayName") ?? "").trim(),
+    email: normalizeEmail(String(form.get("email") ?? "")),
+  };
+}
+
 export function validateSignup(form: FormData): Validated<SignupInput> {
-  const displayName = String(form.get("displayName") ?? "").trim();
-  const email = normalizeEmail(String(form.get("email") ?? ""));
+  const { displayName, email } = extractSignupPreservedValues(form);
   const password = String(form.get("password") ?? "");
   const confirmPassword = String(form.get("confirmPassword") ?? "");
 

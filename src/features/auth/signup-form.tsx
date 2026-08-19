@@ -5,11 +5,10 @@ import { useActionState } from "react";
 
 import { FormAlert } from "@/components/ui/form-alert";
 import { SubmitButton } from "@/components/ui/submit-button";
-import { TextField } from "@/components/ui/text-field";
 
 import { signUpAction } from "./actions";
+import { SignupFields } from "./signup-fields";
 import { EMPTY_AUTH_STATE } from "./state";
-import { DISPLAY_NAME_MAX_LENGTH, PASSWORD_MIN_LENGTH } from "./validation";
 
 export function SignupForm() {
   const [state, formAction] = useActionState(signUpAction, EMPTY_AUTH_STATE);
@@ -31,32 +30,7 @@ export function SignupForm() {
     <form action={formAction} className="flex flex-col gap-4">
       {state.error ? <FormAlert tone="error">{state.error}</FormAlert> : null}
 
-      <TextField
-        label="Nom"
-        name="displayName"
-        autoComplete="name"
-        maxLength={DISPLAY_NAME_MAX_LENGTH}
-      />
-      <TextField
-        label="Adresse e-mail"
-        name="email"
-        type="email"
-        autoComplete="email"
-      />
-      <TextField
-        label="Mot de passe"
-        name="password"
-        type="password"
-        autoComplete="new-password"
-        minLength={PASSWORD_MIN_LENGTH}
-      />
-      <TextField
-        label="Confirmation du mot de passe"
-        name="confirmPassword"
-        type="password"
-        autoComplete="new-password"
-        minLength={PASSWORD_MIN_LENGTH}
-      />
+      <SignupFields values={state.values} />
 
       <SubmitButton label="Créer mon compte" pendingLabel="Création…" />
 

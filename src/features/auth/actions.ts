@@ -8,8 +8,12 @@ import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { getSiteOrigin } from "@/lib/site-url";
 
 import { toUserMessage } from "./errors";
-import type { AuthFormState } from "./state";
-import { validateLogin, validateSignup } from "./validation";
+import type { AuthFormState, SignupPreservedValues } from "./state";
+import {
+  extractSignupPreservedValues,
+  validateLogin,
+  validateSignup,
+} from "./validation";
 
 const NOT_CONFIGURED_STATE: AuthFormState = {
   error:
@@ -19,6 +23,20 @@ const NOT_CONFIGURED_STATE: AuthFormState = {
 
 function failure(error: string): AuthFormState {
   return { error, notice: null };
+}
+
+/**
+ * Échec d'inscription : renvoie le message d'erreur ET les champs non
+ * sensibles (nom, e-mail) pour que le formulaire puisse les réafficher.
+ *
+ * Le mot de passe et sa confirmation ne figurent jamais dans `values` :
+ * ils ne sont ni conservés côté serveur, ni renvoyés au navigateur.
+ */
+function signupFailure(
+  error: string,
+  values: SignupPreservedValues,
+): AuthFormState {
+  return { error, notice: null, values };
 }
 
 /**
@@ -36,9 +54,11 @@ export async function signUpAction(
     return NOT_CONFIGURED_STATE;
   }
 
+  const preserved = extractSignupPreservedValues(formData);
+
   const parsed = validateSignup(formData);
   if (!parsed.ok) {
-    return failure(parsed.error);
+    return signupFailure(parsed.error, preserved);
   }
 
   const { displayName, email, password } = parsed.value;
@@ -59,18 +79,18 @@ export async function signUpAction(
     });
 
     if (error) {
-      return failure(toUserMessage(error, "signup"));
+      return signupFailure(toUserMessage(error, "signup"), preserved);
     }
 
     // Lorsque la confirmation d'e-mail est active, Supabase renvoie un
     // utilisateur factice sans identité pour une adresse déjà inscrite.
     if (data.user && (data.user.identities?.length ?? 0) === 0) {
-      return failure("Cette adresse e-mail est déjà utilisée.");
+      return signupFailure("Cette adresse e-mail est déjà utilisée.", preserved);
     }
 
     hasSession = data.session !== null;
   } catch (error) {
-    return failure(toUserMessage(error, "signup"));
+    return signupFailure(toUserMessage(error, "signup"), preserved);
   }
 
   if (!hasSession) {
