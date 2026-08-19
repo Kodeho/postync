@@ -32,9 +32,9 @@ export function LoginForm() {
 
       <SubmitButton label="Se connecter" pendingLabel="Connexion…" />
 
-      <p className="text-sm opacity-80">
+      <p className="text-sm text-muted">
         Pas encore de compte ?{" "}
-        <Link href="/signup" className="underline underline-offset-4">
+        <Link href="/signup" className="font-medium text-primary underline-offset-4 hover:underline">
           Créer un compte
         </Link>
       </p>

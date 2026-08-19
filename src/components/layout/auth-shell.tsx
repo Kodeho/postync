@@ -15,16 +15,18 @@ export function AuthShell({ title, children }: AuthShellProps) {
         <div className="mb-8 text-center">
           <Link
             href="/"
-            className="text-2xl font-semibold tracking-tight hover:opacity-80"
+            className="text-2xl font-semibold tracking-tight text-foreground hover:opacity-80"
           >
             {PRODUCT_NAME}
           </Link>
-          <p className="mt-1 text-sm opacity-70">{PRODUCT_TAGLINE}</p>
+          <p className="mt-1 text-sm text-muted">{PRODUCT_TAGLINE}</p>
         </div>
 
-        <h1 className="mb-6 text-lg font-medium">{title}</h1>
+        <div className="rounded-lg border border-border bg-surface p-6 shadow-soft">
+          <h1 className="mb-6 text-lg font-semibold tracking-tight">{title}</h1>
 
-        {children}
+          {children}
+        </div>
       </div>
     </main>
   );

@@ -21,7 +21,7 @@ export function TextField({
 }: TextFieldProps) {
   return (
     <label className="flex flex-col gap-1.5 text-sm">
-      <span className="font-medium">{label}</span>
+      <span className="font-medium text-foreground">{label}</span>
       <input
         id={name}
         name={name}
@@ -31,7 +31,7 @@ export function TextField({
         minLength={minLength}
         maxLength={maxLength}
         defaultValue={defaultValue}
-        className="rounded-md border border-black/15 bg-transparent px-3 py-2 outline-none focus:border-black/50 dark:border-white/20 dark:focus:border-white/60"
+        className="rounded-md border border-border bg-surface px-3 py-2 text-foreground shadow-soft transition-colors placeholder:text-muted-soft hover:border-border-strong focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring/60"
       />
     </label>
   );

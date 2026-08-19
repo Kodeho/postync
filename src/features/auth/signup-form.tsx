@@ -17,8 +17,8 @@ export function SignupForm() {
     return (
       <div className="flex flex-col gap-4">
         <FormAlert tone="notice">{state.notice}</FormAlert>
-        <p className="text-sm opacity-80">
-          <Link href="/login" className="underline underline-offset-4">
+        <p className="text-sm text-muted">
+          <Link href="/login" className="font-medium text-primary underline-offset-4 hover:underline">
             Retour à la connexion
           </Link>
         </p>
@@ -34,9 +34,9 @@ export function SignupForm() {
 
       <SubmitButton label="Créer mon compte" pendingLabel="Création…" />
 
-      <p className="text-sm opacity-80">
+      <p className="text-sm text-muted">
         Déjà un compte ?{" "}
-        <Link href="/login" className="underline underline-offset-4">
+        <Link href="/login" className="font-medium text-primary underline-offset-4 hover:underline">
           Se connecter
         </Link>
       </p>

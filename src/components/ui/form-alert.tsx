@@ -4,9 +4,8 @@ type FormAlertProps = {
 };
 
 const TONE_CLASSES: Record<FormAlertProps["tone"], string> = {
-  error: "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300",
-  notice:
-    "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  error: "border-danger/30 bg-danger-soft text-danger",
+  notice: "border-success/30 bg-success-soft text-success",
 };
 
 export function FormAlert({ tone, children }: FormAlertProps) {

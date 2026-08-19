@@ -38,7 +38,14 @@ Organisation du code source (`src/`) :
 | `/auth/callback`  | public | confirmation d'adresse e-mail Supabase  |
 | `/onboarding`     | privé  | création du premier workspace           |
 | `/app`            | privé  | résolveur : redirige vers le workspace actif ou `/onboarding` |
-| `/app/[workspaceSlug]` | privé | espace privé minimal, conscient du workspace |
+| `/app/[workspaceSlug]` | privé | vue d'ensemble du workspace (shell C5) |
+| `/app/[workspaceSlug]/publish` | privé | placeholder « Nouvelle publication » |
+| `/app/[workspaceSlug]/calendar` | privé | placeholder calendrier |
+| `/app/[workspaceSlug]/media` | privé | placeholder médiathèque |
+| `/app/[workspaceSlug]/accounts` | privé | placeholder comptes sociaux (4 plateformes, non connectées) |
+| `/app/[workspaceSlug]/analytics` | privé | placeholder statistiques |
+| `/app/[workspaceSlug]/settings` | privé | paramètres minimaux (workspace, profil, préférences) |
+| `/app/[workspaceSlug]/billing` | privé | placeholder abonnement |
 
 ## Modèle multi-tenant (C4)
 
@@ -75,6 +82,37 @@ sélection.
 Ce choix est explicite, sans état caché, et chaque requête revalide
 l'appartenance côté serveur.
 
+### Shell applicatif (C5)
+
+Toutes les routes `/app/[workspaceSlug]/*` partagent le layout
+`src/app/app/[workspaceSlug]/layout.tsx`, qui résout le contexte du workspace
+(`getWorkspaceContext`, mémoïsé par requête avec `React.cache`) et rend
+`AppShell` :
+
+```text
+AppShell (Server)
+├── Sidebar (Server)            desktop lg+ ; réutilisée dans le tiroir mobile
+│   ├── WorkspaceSwitcher (Client)  memberships réelles + <dialog> « Nouveau workspace »
+│   ├── SidebarNav ×3 (Client)      route active via usePathname (aria-current)
+│   └── UserMenu (Client)           Mon profil / Paramètres / Se déconnecter
+├── Header (Server)
+│   ├── MobileNav (Client)          tiroir < lg, contient <Sidebar />
+│   ├── HeaderTitle (Client)        titre déduit de la route active
+│   └── UserMenu compact (Client)
+└── <main> {page}
+```
+
+Les pages rappellent `getWorkspaceContext()` (même requête → même résultat)
+et restent chacune une barrière d'autorisation. Les données métier absentes
+sont présentées comme des états vides explicites (`EmptyState`, `StatCard`
+avec « — ») ; aucune donnée d'identité n'est inventée.
+
+Système de design : variables CSS dans `src/app/globals.css` (`background`,
+`surface`, `border`, `foreground`, `muted`, `primary`, `danger`, `success`,
+`warning`…) exposées à Tailwind v4 via `@theme`. Version claire uniquement ;
+le variant `dark:` est neutralisé (`[data-theme="dark"]`, jamais posé).
+Icônes : `lucide-react`. Typographie : Geist (déjà chargée via `next/font`).
+
 ### Code
 
 - `src/features/workspaces/actions.ts` — Server Action `createWorkspaceAction`
@@ -83,6 +121,13 @@ l'appartenance côté serveur.
   `listMemberships`).
 - `src/features/workspaces/resolve.ts` — logique pure de résolution.
 - `src/features/workspaces/validation.ts` — nom et format de slug.
+- `src/features/workspaces/navigation.ts` — configuration des routes du
+  shell, liens et route active (logique pure).
+- `src/features/workspaces/context.ts` — contexte workspace par requête.
+- `src/components/shell/*` — AppShell, Sidebar, Header, WorkspaceSwitcher,
+  UserMenu, MobileNav, SidebarNav.
+- `src/components/ui/*` — Button, Avatar, Panel, PageHeader, EmptyState,
+  StatCard, TextField, FormAlert, SubmitButton.
 - `src/types/workspace.ts`, `src/types/workspace-role.ts` — types.
 
 Ce document sera complété au fur et à mesure des étapes suivantes.

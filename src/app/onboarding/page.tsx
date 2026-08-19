@@ -28,7 +28,7 @@ export default async function OnboardingPage() {
 
   return (
     <AuthShell title="Bienvenue dans POSTYNC">
-      <p className="mb-6 text-sm opacity-80">
+      <p className="mb-6 text-sm text-muted">
         Créez votre premier espace de travail.
       </p>
       <CreateWorkspaceForm

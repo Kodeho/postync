@@ -1,115 +1,70 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { notFound } from "next/navigation";
+import { Plus, Share2, Send } from "lucide-react";
 import { connection } from "next/server";
 
-import { PRODUCT_NAME } from "@/config/product";
-import { signOutAction } from "@/features/auth/actions";
-import { CreateWorkspaceForm } from "@/features/workspaces/create-workspace-form";
-import { listMemberships, requireUser } from "@/features/workspaces/queries";
-import { findMembershipBySlug } from "@/features/workspaces/resolve";
-import type { WorkspaceRole } from "@/types/workspace-role";
+import { ButtonLink } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
+import { StatCard } from "@/components/ui/stat-card";
+import { getWorkspaceContext, userFirstName } from "@/features/workspaces/context";
+import { workspaceHref } from "@/features/workspaces/navigation";
 
 export const metadata: Metadata = {
-  title: "Mon espace — POSTYNC",
-};
-
-const ROLE_LABELS: Record<WorkspaceRole, string> = {
-  owner: "Owner",
-  admin: "Admin",
-  member: "Member",
+  title: "Vue d'ensemble — POSTYNC",
 };
 
 /**
- * `/app/[workspaceSlug]` — espace privé minimal, conscient du workspace.
+ * Vue d'ensemble du workspace actif.
  *
- * Le slug d'URL n'est PAS une autorisation. Il est confronté aux memberships
- * réels de l'utilisateur (lus sous RLS) : un slug inconnu, mal formé, ou
- * appartenant à un workspace dont l'utilisateur n'est pas membre aboutit au
- * même 404, sans révéler l'existence du workspace.
+ * Les statistiques sont des emplacements explicites (« — ») : aucune donnée
+ * métier n'existe encore. L'identité (prénom, workspace) vient de la base.
  */
-export default async function WorkspacePage({
+export default async function OverviewPage({
   params,
 }: PageProps<"/app/[workspaceSlug]">) {
   await connection();
 
   const { workspaceSlug } = await params;
-  const { supabase, user } = await requireUser();
-
-  const memberships = await listMemberships(supabase, user.id);
-  const active = findMembershipBySlug(memberships, workspaceSlug);
-
-  if (!active) {
-    notFound();
-  }
-
-  // RLS restreint déjà cette lecture au profil de l'utilisateur courant.
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("display_name")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  const displayName = profile?.display_name?.trim();
-  const label = displayName && displayName.length > 0 ? displayName : user.email;
-  const others = memberships.filter(
-    (m) => m.workspace.id !== active.workspace.id,
-  );
+  const ctx = await getWorkspaceContext(workspaceSlug);
+  const slug = ctx.active.workspace.slug;
+  const firstName = userFirstName(ctx);
 
   return (
-    <main className="flex flex-1 flex-col items-center justify-center gap-8 p-8 text-center">
-      <h1 className="text-3xl font-semibold tracking-tight">{PRODUCT_NAME}</h1>
+    <div className="flex flex-col gap-8">
+      <PageHeader
+        title={firstName ? `Bonjour ${firstName}` : "Bonjour"}
+        description="Voici ce qui se passe aujourd'hui sur vos réseaux."
+        actions={
+          <ButtonLink href={workspaceHref(slug, "publish")}>
+            <Plus aria-hidden="true" className="h-4 w-4" />
+            Nouvelle publication
+          </ButtonLink>
+        }
+      />
 
-      <section className="flex flex-col gap-1">
-        <p className="text-sm opacity-70">Workspace actif :</p>
-        <p className="text-xl font-medium">{active.workspace.name}</p>
+      <section aria-label="Résumé du jour" className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatCard label="Publications aujourd'hui" value={null} />
+        <StatCard label="Programmées" value={null} />
+        <StatCard label="Réussies" value={null} />
+        <StatCard label="Erreurs" value={null} />
       </section>
 
-      <p className="text-lg">Bienvenue, {label}</p>
-
-      <section className="flex flex-col gap-1">
-        <p className="text-sm opacity-70">Rôle :</p>
-        <p className="font-medium">{ROLE_LABELS[active.role]}</p>
-      </section>
-
-      {others.length > 0 ? (
-        <nav aria-label="Autres workspaces" className="flex flex-col gap-2">
-          <p className="text-sm opacity-70">Changer de workspace :</p>
-          <ul className="flex flex-wrap justify-center gap-3 text-sm">
-            {others.map((m) => (
-              <li key={m.workspace.id}>
-                <Link
-                  href={`/app/${m.workspace.slug}`}
-                  className="underline underline-offset-4"
-                >
-                  {m.workspace.name}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </nav>
-      ) : null}
-
-      <details className="w-full max-w-sm text-left">
-        <summary className="cursor-pointer text-sm underline underline-offset-4">
-          Créer un autre workspace
-        </summary>
-        <div className="mt-4">
-          <CreateWorkspaceForm
-            submitLabel="Créer le workspace"
-            pendingLabel="Création…"
-          />
-        </div>
-      </details>
-
-      <form action={signOutAction}>
-        <button
-          type="submit"
-          className="rounded-md border border-black/15 px-4 py-2 text-sm font-medium transition-opacity hover:opacity-80 dark:border-white/20"
-        >
-          Se déconnecter
-        </button>
-      </form>
-    </main>
+      <EmptyState
+        icon={<Send className="h-5 w-5" />}
+        title="Aucune publication pour le moment."
+        description="Connectez vos réseaux sociaux et publiez votre premier contenu."
+        actions={
+          <>
+            <ButtonLink href={workspaceHref(slug, "accounts")} variant="secondary">
+              <Share2 aria-hidden="true" className="h-4 w-4" />
+              Connecter un compte
+            </ButtonLink>
+            <ButtonLink href={workspaceHref(slug, "publish")}>
+              Créer une publication
+            </ButtonLink>
+          </>
+        }
+      />
+    </div>
   );
 }
