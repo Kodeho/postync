@@ -22,10 +22,14 @@ Cette clé **contourne RLS**. Trois règles absolues :
 2. jamais importée depuis un module atteignable par le navigateur ;
 3. jamais commitée.
 
-À l'issue de C3, **aucun code n'utilise `SUPABASE_SERVICE_ROLE_KEY`** : elle est
-seulement déclarée dans `.env.example` en prévision des étapes suivantes.
-`src/lib/supabase/env.ts` ne la lit délibérément pas, alors que ce module est
-importé par du code client.
+À l'issue de C4, **aucun code applicatif (`src/`) n'utilise
+`SUPABASE_SERVICE_ROLE_KEY`**. `src/lib/supabase/env.ts` ne la lit délibérément
+pas, alors que ce module est importé par du code client.
+
+Seul le test d'intégration `tests/integration/workspaces-multitenant.test.ts`
+la lit (depuis `.env.local`, côté Node, jamais bundlé) pour créer, inspecter
+et supprimer ses propres données de test. Les politiques elles-mêmes y sont
+exercées avec de vrais JWT `authenticated`.
 
 ## Séparation client / serveur
 
@@ -68,8 +72,9 @@ lire les cookies : son contenu est falsifiable et ne doit jamais servir de base
 
 ### Le Proxy n'est pas l'unique barrière
 
-`/app` est protégée à deux niveaux : par le Proxy, et par un `getUser()` dans
-le composant serveur de la page lui-même. Un contrôle d'accès reposant
+`/app`, `/app/[workspaceSlug]` et `/onboarding` sont protégées à deux
+niveaux : par le Proxy, et par un `getUser()` dans le composant serveur de la
+page lui-même (`requireUser()` dans `src/features/workspaces/queries.ts`). Un contrôle d'accès reposant
 uniquement sur le middleware/proxy est fragile — une requête qui parviendrait à
 le contourner atteindrait directement le composant. La vérification faisant
 autorité est celle de la page.
@@ -85,16 +90,92 @@ le client, y compris par appel direct à l'API REST.
 Sa modification passe exclusivement par `service_role` ou une migration
 contrôlée.
 
-`WorkspaceRole` n'est pas encore utilisé.
+### `platform_role` ≠ rôle workspace
+
+Deux systèmes de rôles coexistent et restent **indépendants** :
+
+| Système           | Où                              | Valeurs                              | Portée                              |
+| ----------------- | ------------------------------- | ------------------------------------ | ----------------------------------- |
+| `platform_role`   | `profiles.platform_role`        | `user`, `support`, `admin`, `super_admin` | administration POSTYNC (Kodeho) |
+| rôle workspace    | `workspace_members.role`        | `owner`, `admin`, `member`           | un workspace donné                  |
+
+Être `owner` d'un workspace ne confère aucun droit plateforme ; être
+`super_admin` POSTYNC ne confère aucun rôle dans un workspace (et n'est pas
+pris en compte par les politiques RLS des workspaces). Aucune politique, aucun
+code ne doit dériver l'un de l'autre.
+
+## Multi-tenant (C4)
+
+### Modèle
+
+```text
+auth.uid()  ->  workspace_members  ->  workspace demandé  ->  (futures ressources)
+```
+
+Toute décision d'accès à un workspace part de `auth.uid()` et passe par une
+membership réelle en base. Les futures ressources (comptes sociaux, médias,
+publications, abonnements) porteront un `workspace_id` et seront filtrées par
+les mêmes fonctions d'aide RLS.
+
+### Interdiction de faire confiance au client
+
+Un `workspace_id` ou un slug reçu du navigateur n'est **jamais** une
+autorisation :
+
+- le slug d'URL `/app/[workspaceSlug]` est confronté côté serveur aux
+  memberships de l'utilisateur (lues sous RLS) ; un slug mal formé, inconnu ou
+  appartenant à un workspace dont l'utilisateur n'est pas membre produit le
+  même 404 (`src/features/workspaces/resolve.ts`) ;
+- la RPC `create_workspace()` impose `owner_id = auth.uid()` ;
+- le Proxy ne vérifie que la session ; l'appartenance est vérifiée dans la
+  page, qui est la barrière faisant autorité.
+
+### Isolation et stratégie RLS
+
+RLS est activée sur `workspaces` et `workspace_members` (détail dans
+`docs/DATABASE.md`). Lecture d'un workspace et de ses memberships : membres
+uniquement. Modification du nom : `owner` et `admin`. Tout le reste est fermé.
+
+La défense est en profondeur : même si une politique était mal écrite, les
+privilèges PostgreSQL n'accordent à `authenticated` que `select` sur les deux
+tables et `update (name)` sur `workspaces`. Aucun `insert`, `update` ou
+`delete` sur `workspace_members` n'est possible par l'API REST.
+
+### Escalade de privilèges
+
+| Tentative                                     | Résultat                                  |
+| --------------------------------------------- | ----------------------------------------- |
+| `member -> admin` (PATCH `role`)              | `permission denied` (42501)               |
+| `member -> owner`, `admin -> owner`           | `permission denied` (42501)               |
+| s'ajouter dans un workspace (INSERT)          | `permission denied` (42501)               |
+| écrire `workspaces.owner_id`                  | `permission denied` (42501)               |
+| second owner / rétrograder ou retirer le owner (même `service_role`) | refusé par trigger |
+
+Le transfert de propriété n'existe pas en C4 ; il passera par une RPC
+`security definer` dédiée, seule voie prévue pour modifier `owner_id`.
+
+### Rôles workspace
+
+| Rôle     | Lire | Renommer | Gérer les membres        | Supprimer / transférer |
+| -------- | ---- | -------- | ------------------------ | ---------------------- |
+| `owner`  | oui  | oui      | à venir (RPC)            | à venir (RPC)          |
+| `admin`  | oui  | oui      | à venir (non-owner, RPC) | non                    |
+| `member` | oui  | non      | non                      | non                    |
+
+### Tests
+
+`tests/rls-workspaces.test.sql` (niveau base, impersonation PostgREST) et
+`tests/integration/workspaces-multitenant.test.ts` (API réelle, vrais JWT)
+couvrent T1–T10, l'atomicité, les slugs, les rôles et l'escalade.
 
 ## RLS
 
-RLS est activée sur `profiles` et ne doit jamais être désactivée pour
-contourner un problème. Une politique manquante se corrige en ajoutant la
-politique, pas en levant RLS.
+RLS est activée sur `profiles`, `workspaces` et `workspace_members` et ne doit
+jamais être désactivée pour contourner un problème. Une politique manquante se
+corrige en ajoutant la politique, pas en levant RLS.
 
-Le test `tests/rls-profiles.test.sql` valide l'isolation entre utilisateurs au
-niveau de la base, indépendamment de l'interface.
+Les tests `tests/rls-profiles.test.sql` et `tests/rls-workspaces.test.sql`
+valident l'isolation au niveau de la base, indépendamment de l'interface.
 
 ## Traitement des erreurs
 
@@ -132,5 +213,8 @@ Le paramètre `?next=` est filtré : seuls les chemins internes sont acceptés
 ## Points ouverts
 
 - Jetons OAuth des plateformes sociales : chiffrement au repos à définir.
-- Isolation par workspace : à traiter avec le modèle de données correspondant.
+- Gestion des membres, transfert de propriété et suppression de workspace :
+  RPC `security definer` à écrire (le modèle de sécurité les attend).
+- Limites de création de workspaces : à brancher sur le futur module billing
+  (`CanCreateWorkspace?`) avant l'appel à `create_workspace()`.
 - Limitation de débit applicative : seul le rate limit natif Supabase agit.

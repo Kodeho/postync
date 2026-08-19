@@ -3,8 +3,14 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { isSupabaseConfigured, requireSupabaseEnv } from "./env";
 
-/** Préfixes de routes exigeant une session valide. */
-const PRIVATE_PREFIXES = ["/app"];
+/**
+ * Préfixes de routes exigeant une session valide.
+ *
+ * Le Proxy ne vérifie QUE la session. L'appartenance au workspace demandé
+ * (`/app/[workspaceSlug]`) est résolue dans la page elle-même, côté serveur,
+ * contre les memberships réels : voir `src/features/workspaces/queries.ts`.
+ */
+const PRIVATE_PREFIXES = ["/app", "/onboarding"];
 
 /** Routes d'authentification dont un utilisateur connecté doit être sorti. */
 const AUTH_ROUTES = ["/login", "/signup"];

@@ -36,6 +36,53 @@ Organisation du code source (`src/`) :
 | `/login`          | public | connexion                               |
 | `/signup`         | public | inscription                             |
 | `/auth/callback`  | public | confirmation d'adresse e-mail Supabase  |
-| `/app`            | privé  | espace privé minimal                    |
+| `/onboarding`     | privé  | création du premier workspace           |
+| `/app`            | privé  | résolveur : redirige vers le workspace actif ou `/onboarding` |
+| `/app/[workspaceSlug]` | privé | espace privé minimal, conscient du workspace |
+
+## Modèle multi-tenant (C4)
+
+```text
+User (auth.users + profiles)
+  │
+  ▼
+Membership (workspace_members : owner | admin | member)
+  │
+  ▼
+Workspace (workspaces)
+  │
+  ▼
+future resources (comptes sociaux, médias, publications, abonnements…)
+```
+
+Un utilisateur peut appartenir à plusieurs workspaces ; chaque workspace est
+isolé des autres par RLS (voir `docs/SECURITY.md`, `docs/DATABASE.md`).
+
+### Workspace actif
+
+Stratégie retenue : **le workspace actif est porté par l'URL**,
+`/app/[workspaceSlug]`. Aucune préférence persistée, aucun cookie de
+sélection.
+
+- `/app` lit les memberships de l'utilisateur (sous RLS) : aucune → redirige
+  vers `/onboarding` ; sinon → redirige vers le workspace le plus ancien.
+- `/app/[workspaceSlug]` confronte le slug aux memberships réelles
+  (`findMembershipBySlug`) ; tout slug non résolu donne un 404.
+- Le sélecteur de workspace est une simple liste de liens vers
+  `/app/<slug>` ; « Créer un autre workspace » appelle la même Server Action
+  que l'onboarding.
+
+Ce choix est explicite, sans état caché, et chaque requête revalide
+l'appartenance côté serveur.
+
+### Code
+
+- `src/features/workspaces/actions.ts` — Server Action `createWorkspaceAction`
+  (RPC `create_workspace`).
+- `src/features/workspaces/queries.ts` — lectures serveur (`requireUser`,
+  `listMemberships`).
+- `src/features/workspaces/resolve.ts` — logique pure de résolution.
+- `src/features/workspaces/validation.ts` — nom et format de slug.
+- `src/types/workspace.ts`, `src/types/workspace-role.ts` — types.
 
 Ce document sera complété au fur et à mesure des étapes suivantes.
