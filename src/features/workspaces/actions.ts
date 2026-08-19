@@ -3,10 +3,10 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 
-import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import type { Workspace } from "@/types/workspace";
 
+import { requireUser } from "./queries";
 import type { WorkspaceFormState } from "./state";
 import { validateWorkspaceName } from "./validation";
 
@@ -48,16 +48,10 @@ export async function createWorkspaceAction(
     return failure(parsed.error, rawName);
   }
 
-  const supabase = await createClient();
-
-  // Contrôle d'accès faisant autorité. La RPC refuse de toute façon un appel
-  // sans `auth.uid()`, mais on renvoie proprement vers /login.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    redirect("/login");
-  }
+  // Contrôle d'accès faisant autorité : session valide ET compte actif
+  // (un compte suspendu est redirigé). La RPC refuse de toute façon un appel
+  // sans `auth.uid()` ou avec un compte suspendu.
+  const { supabase } = await requireUser();
 
   let slug: string;
 

@@ -34,7 +34,8 @@ function isWorkspaceRole(value: string): value is WorkspaceRole {
 
 /**
  * Session serveur faisant autorité : `getUser()` revalide le jeton auprès de
- * Supabase. Redirige vers `/login` sans session.
+ * Supabase. Redirige vers `/login` sans session, vers `/account-suspended`
+ * si le compte n'est pas actif.
  */
 export async function requireUser(): Promise<{
   supabase: SupabaseServerClient;
@@ -51,6 +52,19 @@ export async function requireUser(): Promise<{
 
   if (!user) {
     redirect("/login");
+  }
+
+  // Statut du compte (C6) : un compte suspendu ou désactivé n'accède plus à
+  // POSTYNC. Contrôle serveur systématique, indépendant de l'interface ; la
+  // RPC create_workspace applique le même refus côté base.
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("account_status")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (profile && profile.account_status !== "active") {
+    redirect("/account-suspended");
   }
 
   return { supabase, user };

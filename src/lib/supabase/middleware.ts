@@ -10,7 +10,7 @@ import { isSupabaseConfigured, requireSupabaseEnv } from "./env";
  * (`/app/[workspaceSlug]`) est résolue dans la page elle-même, côté serveur,
  * contre les memberships réels : voir `src/features/workspaces/queries.ts`.
  */
-const PRIVATE_PREFIXES = ["/app", "/onboarding"];
+const PRIVATE_PREFIXES = ["/app", "/onboarding", "/admin"];
 
 /** Routes d'authentification dont un utilisateur connecté doit être sorti. */
 const AUTH_ROUTES = ["/login", "/signup"];

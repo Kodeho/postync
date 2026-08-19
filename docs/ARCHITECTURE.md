@@ -46,6 +46,14 @@ Organisation du code source (`src/`) :
 | `/app/[workspaceSlug]/analytics` | privé | placeholder statistiques |
 | `/app/[workspaceSlug]/settings` | privé | paramètres minimaux (workspace, profil, préférences) |
 | `/app/[workspaceSlug]/billing` | privé | placeholder abonnement |
+| `/account-suspended` | privé | message pour un compte suspendu (déconnexion possible) |
+| `/admin` | Kodeho | dashboard plateforme (données réelles + placeholders) |
+| `/admin/users`, `/admin/users/[userId]` | Kodeho | liste, fiche, suspension, rôles |
+| `/admin/workspaces`, `/admin/workspaces/[workspaceId]` | Kodeho | liste, fiche, membres, Full Access |
+| `/admin/subscriptions` | Kodeho | placeholder (Stripe en C7) |
+| `/admin/plans` | Kodeho | offres de référence (`src/config/plans.ts`) |
+| `/admin/platform` | Kodeho | environnement et état des intégrations (sans secret) |
+| `/admin/audit` | Kodeho (admin, super_admin) | journal `admin_audit_logs` |
 
 ## Modèle multi-tenant (C4)
 
@@ -113,6 +121,26 @@ Système de design : variables CSS dans `src/app/globals.css` (`background`,
 le variant `dark:` est neutralisé (`[data-theme="dark"]`, jamais posé).
 Icônes : `lucide-react`. Typographie : Geist (déjà chargée via `next/font`).
 
+## Administration Kodeho (C6)
+
+```text
+/app/*   espace client   : rôle workspace (owner | admin | member)
+/admin/* espace Kodeho   : platform_role (support | admin | super_admin)
+```
+
+Les deux univers ne se croisent jamais : un `owner` de workspace reste un
+`user` plateforme ; un `super_admin` n'est membre d'aucun workspace par
+défaut. `src/app/admin/layout.tsx` appelle `requirePlatformRole()` (404 sinon)
+et rend `AdminShell` (`src/components/admin/`) — même famille visuelle, badge
+« POSTYNC ADMIN by Kodeho », navigation : Dashboard, Utilisateurs,
+Workspaces, Abonnements, Plans, Plateforme, Audit ; en bas : Retour à POSTYNC,
+profil admin, Déconnexion.
+
+Couche serveur `src/server/admin/` : `authorization` · `permissions` ·
+`queries` · `actions` · `audit` · `platform-status`. Les pages lisent via des
+RPC `admin_*` (`security definer`) et les actions écrivent via les mêmes RPC :
+la base revérifie le rôle et journalise. Plans et quotas : `src/config/plans.ts`.
+
 ### Code
 
 - `src/features/workspaces/actions.ts` — Server Action `createWorkspaceAction`
@@ -129,5 +157,9 @@ Icônes : `lucide-react`. Typographie : Geist (déjà chargée via `next/font`).
 - `src/components/ui/*` — Button, Avatar, Panel, PageHeader, EmptyState,
   StatCard, TextField, FormAlert, SubmitButton.
 - `src/types/workspace.ts`, `src/types/workspace-role.ts` — types.
+- `src/server/admin/*` — couche d'administration (voir ci-dessus).
+- `src/components/admin/*` — AdminShell, navigation, badges, tableaux,
+  formulaires d'action.
+- `src/config/plans.ts` — offres et quotas de référence.
 
 Ce document sera complété au fur et à mesure des étapes suivantes.

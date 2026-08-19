@@ -11,6 +11,7 @@ La base est hébergée sur Supabase (PostgreSQL). Les migrations vivent dans
 | ----- | ---------------------------------------------- |
 | C3    | `profiles` + trigger de création + RLS         |
 | C4    | `workspaces`, `workspace_members`, `create_workspace()`, RLS multi-tenant |
+| C6    | `profiles.account_status`, `workspace_entitlements`, `admin_audit_logs`, RPC `admin_*`, lecture RLS pour le personnel |
 
 ## Table `profiles`
 
@@ -230,6 +231,107 @@ une écriture de `owner_id` échouent avec `permission denied` (42501) avant
 même l'évaluation des politiques. Seule `create_workspace()` (et les futures
 RPC de gestion de membres) écrit dans ces tables.
 
+## Administration Kodeho (C6)
+
+### `profiles.account_status`
+
+| Valeur      | Effet                                                             |
+| ----------- | ----------------------------------------------------------------- |
+| `active`    | accès normal (défaut)                                             |
+| `suspended` | aucun accès à `/app`, `/onboarding`, ni à la création de workspace ; données conservées |
+| `disabled`  | réservé (même effet que `suspended`)                              |
+
+Modifiable uniquement par la RPC `admin_set_account_status()`. Un membre du
+personnel suspendu perd aussi tout pouvoir administratif
+(`current_platform_role()` renvoie `null`).
+
+### Table `workspace_entitlements`
+
+Droit commercial courant d'un workspace, indépendant de Stripe (une ligne par
+workspace ; l'historique est dans `admin_audit_logs`).
+
+| Colonne        | Type          | Contraintes                                              |
+| -------------- | ------------- | -------------------------------------------------------- |
+| `id`           | `uuid`        | clé primaire                                              |
+| `workspace_id` | `uuid`        | `not null`, **unique**, `references workspaces(id) on delete cascade` |
+| `access_mode`  | `text`        | `standard` \| `full_access`                               |
+| `starts_at`    | `timestamptz` | `not null`, défaut `now()`                                |
+| `ends_at`      | `timestamptz` | `null` = sans expiration ; sinon `> starts_at`            |
+| `reason`       | `text`        | 500 caractères max                                        |
+| `granted_by`   | `uuid`        | `references auth.users(id) on delete set null`            |
+| `created_at` / `updated_at` | `timestamptz` | trigger `set_updated_at()`                   |
+
+`workspace_has_full_access(uuid)` renvoie vrai si `full_access` et non
+expiré : c'est ce que consommeront les futurs quotas.
+
+### Table `admin_audit_logs`
+
+| Colonne         | Type          | Contraintes                                        |
+| --------------- | ------------- | -------------------------------------------------- |
+| `id`            | `uuid`        | clé primaire                                        |
+| `actor_user_id` | `uuid`        | `references auth.users(id) on delete set null`      |
+| `action`        | `text`        | format `cible.evenement`                            |
+| `target_type`   | `text`        | `user` \| `workspace`                              |
+| `target_id`     | `text`        |                                                     |
+| `metadata`      | `jsonb`       | valeurs métier uniquement (from/to, ends_at, reason) |
+| `created_at`    | `timestamptz` |                                                     |
+
+Actions journalisées : `user.suspended`, `user.reactivated`,
+`user.role_changed`, `workspace.full_access_granted`,
+`workspace.full_access_revoked`. Jamais de jeton, mot de passe, clé, session
+ni cookie. Écriture uniquement via `admin_audit()` (interne aux RPC).
+
+### Fonctions d'autorisation plateforme
+
+| Fonction                        | Rôle                                                                         |
+| ------------------------------- | ---------------------------------------------------------------------------- |
+| `current_platform_role()`       | `platform_role` de `auth.uid()` si le compte est actif, sinon `null`          |
+| `is_platform_staff()`           | `support` \| `admin` \| `super_admin`                                       |
+| `assert_platform_role(text[])`  | lève `insufficient_privilege` (42501) hors liste — interne                    |
+
+### RPC d'administration (`security definer`, `search_path = ''`)
+
+Toutes commencent par `assert_platform_role(...)` : un appel non autorisé
+échoue en **42501 quelle que soit l'application**. Écritures :
+
+| RPC                                           | Rôles            | Règles                                                                                  | Audit |
+| --------------------------------------------- | ---------------- | --------------------------------------------------------------------------------------- | ----- |
+| `admin_set_account_status(uuid, text)`        | admin, super_admin | jamais soi-même ; un admin ne touche pas un super_admin ; le dernier super_admin actif ne peut pas être suspendu | `user.suspended` / `user.reactivated` |
+| `admin_set_platform_role(uuid, text)`         | admin, super_admin | admin : `user`/`support`/`admin` seulement, jamais sur un super_admin ; jamais son propre rôle, sauf démission d'un super_admin ; il reste toujours ≥ 1 super_admin actif (hors cible) | `user.role_changed` |
+| `admin_grant_full_access(uuid, timestamptz, text)` | admin, super_admin | `ends_at` null ou futur ; upsert                                                   | `workspace.full_access_granted` |
+| `admin_revoke_full_access(uuid, text)`        | admin, super_admin | repasse en `standard`                                                                   | `workspace.full_access_revoked` |
+
+Lectures (`support`, `admin`, `super_admin`) : `admin_dashboard_stats()`,
+`admin_list_users(search, status, role, limit, offset)`, `admin_get_user(uuid)`,
+`admin_user_workspaces(uuid)`, `admin_list_workspaces(search, limit, offset)`,
+`admin_get_workspace(uuid)`, `admin_workspace_members(uuid)`. Réservée à
+`admin`/`super_admin` : `admin_list_audit_logs(limit, offset)`. Les e-mails
+proviennent de `auth.users` via ces fonctions, jamais par lecture directe.
+
+`create_workspace()` (C4) est redéfinie en C6 pour refuser un compte non
+actif ; son corps est sinon identique.
+
+### Politiques RLS ajoutées en C6
+
+| Table                   | Politique                             | Condition                                        |
+| ----------------------- | ------------------------------------- | ------------------------------------------------ |
+| `profiles`              | `profiles_select_staff`               | `is_platform_staff()`                            |
+| `workspaces`            | `workspaces_select_staff`             | `is_platform_staff()`                            |
+| `workspace_members`     | `workspace_members_select_staff`      | `is_platform_staff()`                            |
+| `workspace_entitlements`| `workspace_entitlements_select_member`| membre du workspace **ou** personnel             |
+| `admin_audit_logs`      | `admin_audit_logs_select_admin`       | `current_platform_role() in ('admin','super_admin')` |
+
+Aucune politique d'écriture : `authenticated` n'a que `select` sur
+`workspace_entitlements` et `admin_audit_logs` ; un `PATCH` direct échoue en
+42501. Les politiques C3/C4 sont inchangées.
+
+### Amorçage du premier super_admin
+
+`supabase/scripts/promote_super_admin.sql` : opération manuelle côté base
+(SQL Editor ou `npx supabase db query --linked -f …`), à exécuter une fois
+pour un compte déjà inscrit. Elle écrit une entrée `user.role_changed`
+(`source: manual_bootstrap`). Aucune interface ne permet de se promouvoir.
+
 ## Appliquer la migration
 
 ```powershell
@@ -250,6 +352,10 @@ exécute un fichier via l'API de management (compte CLI connecté).
   rôle, atomicité de `create_workspace()`, slugs, rôles owner/admin/member,
   cascade et `restrict`. Auto-contenu : crée ses utilisateurs de test dans
   `auth.users` et se termine par `rollback`.
+- `tests/integration/admin-foundation.test.ts` (C6, `npm test`) : A1–A13
+  contre l'API réelle (user, support, admin, deux super_admin) : refus user,
+  lecture support, suspension/réactivation, rôles, protection du dernier
+  super_admin, Full Access, audit, perte de pouvoir d'un admin suspendu.
 - `tests/integration/workspaces-multitenant.test.ts` (C4, `npm test`) : les
   mêmes scénarios contre l'API REST/RPC réelle avec de vrais JWT
   `authenticated`. Crée des comptes `postync-c4-*@example.com` et les

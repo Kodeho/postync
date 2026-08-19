@@ -22,12 +22,13 @@ Cette clé **contourne RLS**. Trois règles absolues :
 2. jamais importée depuis un module atteignable par le navigateur ;
 3. jamais commitée.
 
-À l'issue de C4, **aucun code applicatif (`src/`) n'utilise
-`SUPABASE_SERVICE_ROLE_KEY`**. `src/lib/supabase/env.ts` ne la lit délibérément
+À l'issue de C6, **aucun code applicatif (`src/`) n'utilise
+`SUPABASE_SERVICE_ROLE_KEY`** — l'administration Kodeho comprise : toutes les
+opérations admin passent par des RPC `security definer` appelées avec le JWT
+de l'administrateur. `src/lib/supabase/env.ts` ne la lit délibérément
 pas, alors que ce module est importé par du code client.
 
-Seul le test d'intégration `tests/integration/workspaces-multitenant.test.ts`
-la lit (depuis `.env.local`, côté Node, jamais bundlé) pour créer, inspecter
+Seuls les tests d'intégration (`tests/integration/*.test.ts`) la lisent (depuis `.env.local`, côté Node, jamais bundlé) pour créer, inspecter
 et supprimer ses propres données de test. Les politiques elles-mêmes y sont
 exercées avec de vrais JWT `authenticated`.
 
@@ -72,8 +73,8 @@ lire les cookies : son contenu est falsifiable et ne doit jamais servir de base
 
 ### Le Proxy n'est pas l'unique barrière
 
-`/app`, `/app/[workspaceSlug]` et `/onboarding` sont protégées à deux
-niveaux : par le Proxy, et par un `getUser()` dans le composant serveur de la
+`/app`, `/app/[workspaceSlug]`, `/onboarding` et `/admin/*` sont protégées à
+deux niveaux : par le Proxy, et par un `getUser()` dans le composant serveur de la
 page lui-même (`requireUser()` dans `src/features/workspaces/queries.ts`). Un contrôle d'accès reposant
 uniquement sur le middleware/proxy est fragile — une requête qui parviendrait à
 le contourner atteindrait directement le composant. La vérification faisant
@@ -102,7 +103,76 @@ Deux systèmes de rôles coexistent et restent **indépendants** :
 Être `owner` d'un workspace ne confère aucun droit plateforme ; être
 `super_admin` POSTYNC ne confère aucun rôle dans un workspace (et n'est pas
 pris en compte par les politiques RLS des workspaces). Aucune politique, aucun
-code ne doit dériver l'un de l'autre.
+code ne doit dériver l'un de l'autre. Seul `platform_role` ouvre `/admin`.
+
+## Administration Kodeho (C6)
+
+### Deux univers
+
+| Espace    | Routes     | Accès décidé par                                   |
+| --------- | ---------- | -------------------------------------------------- |
+| client    | `/app/*`   | memberships de `workspace_members` (C4)            |
+| Kodeho    | `/admin/*` | `profiles.platform_role` + `account_status = active` |
+
+Un utilisateur standard qui demande `/admin/*` obtient un **404** : l'existence
+de l'administration n'est pas révélée. Un membre du personnel suspendu perd
+tout pouvoir.
+
+### Chaîne d'autorisation obligatoire
+
+```text
+session (getUser) -> profil -> account_status = active -> platform_role
+  -> permission (matrice) -> RPC admin_* (qui REFAIT le contrôle en base, puis audite)
+```
+
+Implémentée dans `src/server/admin/` : `authorization.ts`
+(`requirePlatformRole`, `requireSuperAdmin`, `requireAdminAction`),
+`permissions.ts` (matrice pure), `actions.ts` (Server Actions),
+`queries.ts` (lectures), `audit.ts`. Les composants n'embarquent aucune
+décision d'autorisation. Aucun `PATCH` client direct sur `profiles` ou
+`workspace_entitlements` n'est possible (privilèges PostgreSQL).
+
+### Matrice de permissions
+
+| Action                           | support | admin | super_admin |
+| -------------------------------- | ------- | ----- | ----------- |
+| Lire utilisateurs / workspaces   | oui     | oui   | oui         |
+| Suspendre / réactiver            | non     | oui   | oui         |
+| Full Access (grant / revoke)     | non     | oui   | oui         |
+| Voir l'audit                     | non     | oui   | oui         |
+| Rôles user / support / admin     | non     | oui   | oui         |
+| Attribuer / modifier super_admin | non     | non   | oui         |
+
+Règles complémentaires imposées en base : personne ne modifie son propre
+statut ; personne ne modifie son propre rôle, sauf la démission d'un
+super_admin ; un admin ne touche jamais un super_admin ; **il reste toujours
+au moins un super_admin actif** (ni rétrogradation ni suspension du dernier).
+
+### Suspension
+
+`account_status` est contrôlé côté serveur à chaque requête privée
+(`requireUser()` → `/account-suspended`) et côté base (`create_workspace()`
+refuse un compte non actif ; `current_platform_role()` devient `null`).
+Aucune donnée n'est supprimée. C6 n'offre ni suppression définitive ni
+impersonation.
+
+### Full Access
+
+Droit commercial par workspace (`workspace_entitlements`), indépendant de
+Stripe : partenaires, démonstrations, licences offertes. Accordé/retiré par les
+RPC `admin_grant_full_access` / `admin_revoke_full_access`, avec `reason`,
+`granted_by`, expiration facultative, et audit systématique.
+
+### Audit
+
+Chaque action sensible écrit dans `admin_audit_logs` (acteur, action, cible,
+metadata métier). Interdits dans les metadata : jeton, mot de passe, clé,
+service_role, session, cookie. Lecture réservée à admin/super_admin.
+
+### Premier super_admin
+
+Opération manuelle documentée (`supabase/scripts/promote_super_admin.sql`),
+jamais depuis l'interface.
 
 ## Multi-tenant (C4)
 
@@ -170,7 +240,8 @@ couvrent T1–T10, l'atomicité, les slugs, les rôles et l'escalade.
 
 ## RLS
 
-RLS est activée sur `profiles`, `workspaces` et `workspace_members` et ne doit
+RLS est activée sur `profiles`, `workspaces`, `workspace_members`,
+`workspace_entitlements` et `admin_audit_logs` et ne doit
 jamais être désactivée pour contourner un problème. Une politique manquante se
 corrige en ajoutant la politique, pas en levant RLS.
 
