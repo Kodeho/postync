@@ -57,6 +57,7 @@ Organisation du code source (`src/`) :
 | `/app/[workspaceSlug]/billing/success` | privé | retour Checkout (n'active rien) |
 | `/app/[workspaceSlug]/billing/cancel` | privé | retour Checkout (abandon) |
 | `/api/stripe/webhook` | Stripe (signature) | synchronisation des abonnements |
+| `/api/oauth/[provider]/callback` | provider OAuth (state signé usage unique) | retour de connexion sociale |
 
 ## Modèle multi-tenant (C4)
 
@@ -151,6 +152,16 @@ la base revérifie le rôle et journalise. Plans et quotas : `src/config/plans.t
 queries sous RLS), `src/server/supabase/service-client.ts` (service_role,
 webhook et actions uniquement), `src/features/billing/billing-forms.tsx`
 (formulaires client). Détails : `docs/BILLING.md`.
+
+### Comptes sociaux (C8.1)
+
+`src/server/social/` : `pkce` (state + PKCE S256, pur), `oauth-state`
+(usage unique + TTL, Vault), `vault` (wrappers service_role), `accounts`
+(statuts/quotas, pur), `queries` (RLS), `actions` (connect/disconnect,
+owner/admin), `callback` (traitement générique injecté de dépendances),
+`providers/types` (interface `SocialProvider` + registre — implémentations en
+C8.2+ après vérification des documentations officielles). UI :
+`/app/[workspaceSlug]/accounts` + `src/features/accounts/account-forms.tsx`.
 
 ### Code
 

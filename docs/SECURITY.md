@@ -102,6 +102,29 @@ autorité est celle de la page.
   memberships (C4) restent seuls juges. Le Full Access Kodeho (C6) est
   prioritaire sur tout abonnement (`docs/BILLING.md`).
 
+## Comptes sociaux (C8)
+
+- **Tokens** : jamais en clair en table, jamais renvoyés au navigateur, jamais
+  journalisés, jamais dans une URL POSTYNC, jamais dans `admin_audit_logs`,
+  inaccessibles via RLS (colonnes hors liste blanche) et inaccessibles à
+  `authenticated`/`anon` (wrappers Vault réservés à `service_role`). Ils ne
+  transitent qu'en mémoire serveur entre l'API du provider et Vault.
+- **Flux OAuth** : `state` 256 bits (stocké haché SHA-256), TTL 10 min,
+  usage unique (consommation atomique — le replay du callback échoue) ; PKCE
+  S256 quand le provider le supporte (verifier dans Vault, détruit à la
+  consommation) ; `redirect_uri` construits par le serveur.
+- **Callback** (`/api/oauth/[provider]/callback`) vérifie, dans l'ordre :
+  state valide/non expiré/non consommé → plateforme cohérente → session
+  présente ET égale à l'utilisateur INITIATEUR → rôle owner/admin ENCORE
+  détenu sur le workspace du state → quota du plan pour un compte nouveau.
+  Un utilisateur du workspace A ne peut pas connecter un compte au
+  workspace B ; un state volé est inutilisable par un tiers et se consomme.
+- **Rôles** : connecter / reconnecter / déconnecter = owner + admin ;
+  member = lecture seule. Déconnexion : révocation best effort côté
+  plateforme, puis suppression (purge Vault par trigger).
+- Le quota `socialAccounts` du plan (C7, Full Access compris) est appliqué à
+  la connexion, côté serveur.
+
 ## Rôles
 
 `platform_role` (`user`, `support`, `admin`, `super_admin`) servira à

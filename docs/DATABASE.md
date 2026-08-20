@@ -13,6 +13,7 @@ La base est hébergée sur Supabase (PostgreSQL). Les migrations vivent dans
 | C4    | `workspaces`, `workspace_members`, `create_workspace()`, RLS multi-tenant |
 | C6    | `profiles.account_status`, `workspace_entitlements`, `admin_audit_logs`, RPC `admin_*`, lecture RLS pour le personnel |
 | C7    | `billing_customers`, `subscriptions`, `subscription_events`, RPC `admin_list_subscriptions` / `admin_billing_stats` |
+| C8.1  | `social_accounts`, `oauth_states`, wrappers Vault `social_vault_*` |
 
 ## Table `profiles`
 
@@ -382,6 +383,56 @@ Aucune écriture pour `authenticated` (privilèges + absence de politique).
 `admin_list_subscriptions(limit, offset)` (support+) et
 `admin_billing_stats()` (support+ ; agrégats plan/intervalle/statut — le MRR
 est calculé côté application, règle dans `docs/BILLING.md`).
+
+## Comptes sociaux (C8.1)
+
+### Supabase Vault
+
+Les tokens OAuth (access, refresh) et les `code_verifier` PKCE ne sont JAMAIS
+stockés dans une table applicative : ils vivent dans **Supabase Vault**
+(extension `supabase_vault`, chiffrement authentifié libsodium, clés hors
+base). Vérifié sur le projet : le schéma `vault` n'est pas exposé par
+PostgREST (PGRST106) et n'est accessible qu'à `service_role` (USAGE + SELECT).
+L'application y accède par trois wrappers `security definer` du schéma
+`public`, **exécutables par `service_role` uniquement** (revoke
+public/anon/authenticated) : `social_vault_store(secret, name) → uuid`,
+`social_vault_read(uuid) → text`, `social_vault_delete(uuid)`.
+
+### Table `social_accounts`
+
+| Colonne | Notes |
+| --- | --- |
+| `id`, `workspace_id → workspaces cascade` | connexion rattachée au WORKSPACE |
+| `platform` | `instagram \| facebook \| tiktok \| youtube` |
+| `provider_account_id`, `display_name`, `avatar_url` | identité du compte |
+| `access_token_id` / `refresh_token_id` | **références Vault** (uuid), jamais de token en clair |
+| `token_expires_at` / `refresh_expires_at` | null = non expirant |
+| `scopes text[]`, `status`, `status_detail` | `active \| expired \| revoked \| error` ; detail = code court non sensible |
+| `connected_by → auth.users set null`, `connected_at` | initiateur tracé |
+
+`unique (workspace_id, platform, provider_account_id)` : multi-comptes permis,
+reconnexion = mise à jour de la ligne. Trigger `social_accounts_purge_secrets`
+(after delete, security definer) : les secrets Vault meurent avec la ligne,
+y compris en cascade de suppression du workspace.
+
+### Table `oauth_states`
+
+Anti-CSRF, purement serveur : `state_hash` (SHA-256 hex du state, unique —
+un dump ne permet pas de forger un callback), `workspace_id`, `user_id`,
+`platform`, `code_verifier_id` (référence Vault), `redirect_slug`,
+`expires_at` (TTL 10 min), `consumed_at` (usage unique, consommation
+atomique). Trigger de purge du verifier à la suppression. Nettoyage
+opportuniste des états expirés à chaque création.
+
+### RLS et privilèges (C8.1)
+
+| Table | authenticated |
+| --- | --- |
+| `social_accounts` | SELECT **liste blanche de colonnes** (sans `access_token_id`/`refresh_token_id` → 42501 même pour un membre) ; politique : membre du workspace ou personnel plateforme ; aucune écriture |
+| `oauth_states` | aucun accès (ni grant ni politique) |
+
+Écritures via service client uniquement (Server Actions + callback OAuth),
+après contrôle applicatif session + rôle owner/admin.
 
 ## Appliquer la migration
 
