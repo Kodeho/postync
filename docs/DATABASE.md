@@ -12,6 +12,7 @@ La base est hébergée sur Supabase (PostgreSQL). Les migrations vivent dans
 | C3    | `profiles` + trigger de création + RLS         |
 | C4    | `workspaces`, `workspace_members`, `create_workspace()`, RLS multi-tenant |
 | C6    | `profiles.account_status`, `workspace_entitlements`, `admin_audit_logs`, RPC `admin_*`, lecture RLS pour le personnel |
+| C7    | `billing_customers`, `subscriptions`, `subscription_events`, RPC `admin_list_subscriptions` / `admin_billing_stats` |
 
 ## Table `profiles`
 
@@ -331,6 +332,56 @@ Aucune politique d'écriture : `authenticated` n'a que `select` sur
 (SQL Editor ou `npx supabase db query --linked -f …`), à exécuter une fois
 pour un compte déjà inscrit. Elle écrit une entrée `user.role_changed`
 (`source: manual_bootstrap`). Aucune interface ne permet de se promouvoir.
+
+## Facturation Stripe (C7)
+
+Voir `docs/BILLING.md` pour les flux. Réplique locale de Stripe, écrite
+uniquement côté serveur (webhook signé + Server Actions, via service_role) :
+aucune politique RLS d'écriture n'existe sur ces tables.
+
+### Table `billing_customers`
+
+| Colonne              | Contraintes                                                    |
+| -------------------- | -------------------------------------------------------------- |
+| `id`                 | `uuid`, clé primaire                                            |
+| `workspace_id`       | `not null`, **unique**, `references workspaces(id) on delete cascade` |
+| `stripe_customer_id` | `not null`, **unique**, format `cus_…`                          |
+| `created_at` / `updated_at` | trigger `set_updated_at()`                               |
+
+Un workspace = un customer Stripe principal.
+
+### Table `subscriptions`
+
+`id`, `workspace_id → workspaces cascade`, `stripe_subscription_id` (unique,
+`sub_…`), `stripe_customer_id`, `stripe_price_id`, `plan_key`
+(`free|creator|pro|agency|unknown`), `billing_interval`
+(`month|year|unknown`), `status` (`trialing|active|past_due|canceled|unpaid|
+incomplete|incomplete_expired|paused`), `current_period_start/end`,
+`cancel_at_period_end`, `canceled_at`, timestamps. Index unique partiel :
+au plus un abonnement « vivant » (`trialing|active|past_due|unpaid|paused|
+incomplete`) par workspace.
+
+### Table `subscription_events`
+
+`stripe_event_id` (unique, `evt_…`) = verrou d'idempotence du webhook ;
+`event_type`, `processed_at`, `payload_metadata` (identifiants et statuts
+uniquement, jamais le payload complet).
+
+### RLS (C7)
+
+| Table                 | Lecture                                             |
+| --------------------- | --------------------------------------------------- |
+| `billing_customers`   | membres du workspace ou personnel plateforme        |
+| `subscriptions`       | membres du workspace ou personnel plateforme        |
+| `subscription_events` | admin / super_admin                                 |
+
+Aucune écriture pour `authenticated` (privilèges + absence de politique).
+
+### RPC (C7)
+
+`admin_list_subscriptions(limit, offset)` (support+) et
+`admin_billing_stats()` (support+ ; agrégats plan/intervalle/statut — le MRR
+est calculé côté application, règle dans `docs/BILLING.md`).
 
 ## Appliquer la migration
 

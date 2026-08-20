@@ -22,10 +22,13 @@ Cette clé **contourne RLS**. Trois règles absolues :
 2. jamais importée depuis un module atteignable par le navigateur ;
 3. jamais commitée.
 
-À l'issue de C6, **aucun code applicatif (`src/`) n'utilise
-`SUPABASE_SERVICE_ROLE_KEY`** — l'administration Kodeho comprise : toutes les
-opérations admin passent par des RPC `security definer` appelées avec le JWT
-de l'administrateur. `src/lib/supabase/env.ts` ne la lit délibérément
+Depuis C7, la clé est utilisée par UN SEUL module applicatif :
+`src/server/supabase/service-client.ts` (marqué `server-only` — tout import
+côté client casse le build). Usage strictement limité aux écritures de
+facturation : le webhook Stripe (authentifié par sa signature, sans session)
+et les Server Actions de checkout/portail (après vérification session + rôle
+workspace). L'administration Kodeho (C6) continue de passer par des RPC
+`security definer` avec le JWT de l'administrateur, sans service_role. `src/lib/supabase/env.ts` ne la lit délibérément
 pas, alors que ce module est importé par du code client.
 
 Seuls les tests d'intégration (`tests/integration/*.test.ts`) la lisent (depuis `.env.local`, côté Node, jamais bundlé) pour créer, inspecter
@@ -79,6 +82,25 @@ page lui-même (`requireUser()` dans `src/features/workspaces/queries.ts`). Un c
 uniquement sur le middleware/proxy est fragile — une requête qui parviendrait à
 le contourner atteindrait directement le composant. La vérification faisant
 autorité est celle de la page.
+
+## Facturation (C7)
+
+- Le webhook `/api/stripe/webhook` vérifie la signature Stripe sur le raw
+  body (`STRIPE_WEBHOOK_SECRET`) et traite les événements de façon
+  idempotente (`subscription_events`). Une signature invalide → 400.
+- Le checkout et le portail exigent : session valide, compte actif,
+  membership réelle, rôle `owner`/`admin` du workspace. Un `member` ne peut
+  pas modifier la facturation.
+- Le navigateur ne transmet jamais de `workspace_id`, `price_id` ou montant :
+  seulement un slug (résolu sous RLS) et un couple (plan, intervalle) validé
+  puis mappé côté serveur (`src/server/stripe/config.ts`).
+- `success_url` / `cancel_url` / `return_url` sont construites par le serveur
+  depuis l'origine du site : pas de redirection ouverte.
+- Metadata Stripe : `workspace_id` et `plan_key` uniquement. Jamais de jeton,
+  secret, mot de passe ; jamais de payload Stripe complet en base.
+- Un abonnement Stripe ne confère AUCUN droit d'accès multi-tenant : RLS et
+  memberships (C4) restent seuls juges. Le Full Access Kodeho (C6) est
+  prioritaire sur tout abonnement (`docs/BILLING.md`).
 
 ## Rôles
 

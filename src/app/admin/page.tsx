@@ -4,7 +4,9 @@ import { connection } from "next/server";
 
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
+import { formatPlanPrice } from "@/config/plans";
 import { requirePlatformRole } from "@/server/admin/authorization";
+import { getBillingStats } from "@/server/admin/billing-queries";
 import { getDashboardStats } from "@/server/admin/queries";
 
 export const metadata: Metadata = {
@@ -20,7 +22,10 @@ export const metadata: Metadata = {
 export default async function AdminDashboardPage() {
   await connection();
   const actor = await requirePlatformRole();
-  const stats = await getDashboardStats(actor);
+  const [stats, billing] = await Promise.all([
+    getDashboardStats(actor),
+    getBillingStats(actor),
+  ]);
 
   return (
     <div className="flex flex-col gap-8">
@@ -37,8 +42,16 @@ export default async function AdminDashboardPage() {
       </section>
 
       <section aria-label="Activité et revenus" className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Abonnements actifs" value={null} hint="Stripe — C7" />
-        <StatCard label="MRR" value={null} hint="Stripe — C7" />
+        <StatCard
+          label="Abonnements actifs"
+          value={billing?.activeSubscriptions ?? null}
+          hint="active + trialing"
+        />
+        <StatCard
+          label="MRR"
+          value={billing ? formatPlanPrice(billing.mrrCents) : null}
+          hint="Prix de référence ; annuel / 12"
+        />
         <StatCard label="Publications aujourd'hui" value={null} hint="Moteur de publication — à venir" />
         <StatCard label="Incidents" value={null} hint="Supervision — à venir" />
       </section>

@@ -31,7 +31,7 @@ export function getIntegrationStatuses(): IntegrationStatus[] {
       key: "stripe",
       label: "Stripe",
       configured: present("STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"),
-      note: "Facturation — prévue en C7.",
+      note: "Checkout, webhook et Billing Portal (clé secrète + secret webhook).",
     },
     {
       key: "meta",

@@ -54,6 +54,9 @@ Organisation du code source (`src/`) :
 | `/admin/plans` | Kodeho | offres de référence (`src/config/plans.ts`) |
 | `/admin/platform` | Kodeho | environnement et état des intégrations (sans secret) |
 | `/admin/audit` | Kodeho (admin, super_admin) | journal `admin_audit_logs` |
+| `/app/[workspaceSlug]/billing/success` | privé | retour Checkout (n'active rien) |
+| `/app/[workspaceSlug]/billing/cancel` | privé | retour Checkout (abandon) |
+| `/api/stripe/webhook` | Stripe (signature) | synchronisation des abonnements |
 
 ## Modèle multi-tenant (C4)
 
@@ -140,6 +143,14 @@ Couche serveur `src/server/admin/` : `authorization` · `permissions` ·
 `queries` · `actions` · `audit` · `platform-status`. Les pages lisent via des
 RPC `admin_*` (`security definer`) et les actions écrivent via les mêmes RPC :
 la base revérifie le rôle et journalise. Plans et quotas : `src/config/plans.ts`.
+
+### Facturation (C7)
+
+`src/server/stripe/` (config, client, actions, webhook — tous `server-only`),
+`src/server/billing/` (access = résolution Full Access → abonnement → Free,
+queries sous RLS), `src/server/supabase/service-client.ts` (service_role,
+webhook et actions uniquement), `src/features/billing/billing-forms.tsx`
+(formulaires client). Détails : `docs/BILLING.md`.
 
 ### Code
 
