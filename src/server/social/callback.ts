@@ -4,7 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { canConnectMore } from "./accounts";
 import { consumeOAuthState } from "./oauth-state";
-import type { SocialProvider } from "./providers/types";
+import { SocialIdentityUnavailableError, type SocialProvider } from "./providers/types";
 import { vaultDelete, vaultStore } from "./vault";
 
 /**
@@ -37,6 +37,7 @@ export type CallbackResult = {
     | "not_authorized"
     | "provider_denied"
     | "quota_exceeded"
+    | "no_social_profile"
     | "exchange_failed";
 };
 
@@ -101,8 +102,15 @@ export async function handleOAuthCallback(
     });
     identity = await deps.provider.fetchIdentity(tokens.accessToken);
   } catch (error) {
+    if (error instanceof SocialIdentityUnavailableError) {
+      // Compte sans profil publiable sur la plateforme (ex. chaîne YouTube
+      // manquante) : message dédié, ce n'est pas un échec technique.
+      return { slug, outcome: "no_social_profile" };
+    }
+    // `message` ne contient que nos propres textes (« google token: HTTP 400
+    // invalid_grant », « aucune chaîne… ») — jamais de token ni de payload.
     console.error(
-      `[oauth:${deps.provider.platform}] échange: ${error instanceof Error ? error.name : "erreur"}`,
+      `[oauth:${deps.provider.platform}] échange: ${error instanceof Error ? error.message : "erreur"}`,
     );
     return { slug, outcome: "exchange_failed" };
   }

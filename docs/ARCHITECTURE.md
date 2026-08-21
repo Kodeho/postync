@@ -159,8 +159,12 @@ webhook et actions uniquement), `src/features/billing/billing-forms.tsx`
 (usage unique + TTL, Vault), `vault` (wrappers service_role), `accounts`
 (statuts/quotas, pur), `queries` (RLS), `actions` (connect/disconnect,
 owner/admin), `callback` (traitement générique injecté de dépendances),
-`providers/types` (interface `SocialProvider` + registre — implémentations en
-C8.2+ après vérification des documentations officielles). UI :
+`providers/types` (interface `SocialProvider` + registre),
+`providers/youtube` (C8.2 : flux web-server officiel Google — `client_secret`,
+`access_type=offline` + `prompt=consent`, autorisation incrémentale, scope
+minimal `youtube.readonly` ; `youtube.upload` sera ajouté en incrémental à
+l'étape publication). TikTok et Meta suivront, chacun après vérification de sa
+documentation officielle. UI :
 `/app/[workspaceSlug]/accounts` + `src/features/accounts/account-forms.tsx`.
 
 ### Code

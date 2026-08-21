@@ -14,7 +14,7 @@ import type { WorkspaceMembership } from "@/types/workspace";
 import { canConnectMore, PLATFORM_LABELS } from "./accounts";
 import type { SocialActionState } from "./action-state";
 import { createOAuthState } from "./oauth-state";
-import { getProvider } from "./providers/types";
+import { getProvider } from "./providers";
 import { vaultRead } from "./vault";
 
 /**

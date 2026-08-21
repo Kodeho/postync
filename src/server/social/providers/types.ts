@@ -20,6 +20,13 @@ export type TokenSet = {
   scopes: string[];
 };
 
+/**
+ * Le compte authentifié ne possède pas le profil requis sur la plateforme
+ * (ex. compte Google sans chaîne YouTube — code Google `youtubeSignupRequired`).
+ * Cas utilisateur légitime, distinct d'un échec technique.
+ */
+export class SocialIdentityUnavailableError extends Error {}
+
 export type SocialIdentity = {
   providerAccountId: string;
   displayName: string | null;

@@ -22,7 +22,7 @@ import {
   needsReconnect,
   type SocialAccountRow,
 } from "@/server/social/accounts";
-import { isProviderAvailable } from "@/server/social/providers/types";
+import { isProviderAvailable } from "@/server/social/providers";
 import { listSocialAccounts } from "@/server/social/queries";
 import type { SocialPlatform } from "@/types/platform";
 
@@ -55,6 +55,10 @@ const CALLBACK_MESSAGES: Record<string, { tone: "notice" | "error"; text: string
   quota_exceeded: {
     tone: "error",
     text: "Limite de comptes sociaux du plan atteinte.",
+  },
+  no_social_profile: {
+    tone: "error",
+    text: "Ce compte ne possède pas encore de profil publiable sur cette plateforme (par exemple : aucune chaîne YouTube sur ce compte Google). Créez-le sur la plateforme, puis réessayez.",
   },
   exchange_failed: {
     tone: "error",

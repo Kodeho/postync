@@ -4,7 +4,7 @@ import { getSiteOrigin } from "@/lib/site-url";
 import { createClient } from "@/lib/supabase/server";
 import { getWorkspaceAccess } from "@/server/billing/queries";
 import { handleOAuthCallback } from "@/server/social/callback";
-import { getProvider } from "@/server/social/providers/types";
+import { getProvider } from "@/server/social/providers";
 import { createServiceClient } from "@/server/supabase/service-client";
 import type { SocialPlatform } from "@/types/platform";
 
