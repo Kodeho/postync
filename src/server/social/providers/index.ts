@@ -1,5 +1,6 @@
 import "server-only";
 
+import { isTikTokConfigured, tiktokProvider } from "./tiktok";
 import { registerProvider } from "./types";
 import { isYouTubeConfigured, youtubeProvider } from "./youtube";
 
@@ -8,11 +9,14 @@ import { isYouTubeConfigured, youtubeProvider } from "./youtube";
  * ses identifiants sont configurés côté serveur — sinon la plateforme reste
  * affichée « à venir » dans l'interface.
  *
- * C8.2 : YouTube. (C8.3 TikTok et C8.4 Meta suivront, chacun après
- * vérification de sa documentation officielle.)
+ * C8.2 : YouTube. C8.3 : TikTok. (C8.4 Meta suivra, après vérification de sa
+ * documentation officielle et validation de l'architecture retenue.)
  */
 if (isYouTubeConfigured()) {
   registerProvider(youtubeProvider);
+}
+if (isTikTokConfigured()) {
+  registerProvider(tiktokProvider);
 }
 
 export { getProvider, isProviderAvailable } from "./types";
