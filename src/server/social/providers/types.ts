@@ -48,9 +48,27 @@ export interface SocialProvider {
     redirectUri: string;
   }): Promise<TokenSet>;
   fetchIdentity(accessToken: string): Promise<SocialIdentity>;
-  refresh?(refreshToken: string): Promise<TokenSet>;
+  /**
+   * Rafraîchissement du jeton. L'argument est normalement le REFRESH TOKEN,
+   * sauf pour les providers qui n'en délivrent pas de distinct et rafraîchissent
+   * le jeton avec lui-même (Instagram) : voir `refreshUsesAccessToken`.
+   */
+  refresh?(token: string): Promise<TokenSet>;
+  /**
+   * `true` quand `refresh()` attend l'ACCESS TOKEN courant et non un refresh
+   * token (cas Instagram : `ig_refresh_token` prolonge le jeton longue durée
+   * lui-même, aucun refresh token n'existe). L'appelant doit alors lire
+   * `access_token_id` et non `refresh_token_id`.
+   */
+  refreshUsesAccessToken?: boolean;
   /** Révocation best effort côté plateforme lors de la déconnexion. */
   revoke?(tokens: { accessToken: string | null; refreshToken: string | null }): Promise<void>;
+  /**
+   * Message affiché après une déconnexion quand la plateforme n'expose AUCUN
+   * endpoint de révocation (`revoke` absent) : l'utilisateur doit alors retirer
+   * l'autorisation lui-même. Ne pas laisser croire que l'accès est révoqué.
+   */
+  revokeNotice?: string;
 }
 
 /**

@@ -163,8 +163,13 @@ owner/admin), `callback` (traitement générique injecté de dépendances),
 `providers/youtube` (C8.2 : flux web-server officiel Google — `client_secret`,
 `access_type=offline` + `prompt=consent`, autorisation incrémentale, scope
 minimal `youtube.readonly` ; `youtube.upload` sera ajouté en incrémental à
-l'étape publication). TikTok et Meta suivront, chacun après vérification de sa
-documentation officielle. UI :
+l'étape publication), `providers/tiktok` (C8.3 : Login Kit Web v2, scopes en
+virgules, rotation du refresh token, scope minimal `user.info.basic`),
+`providers/instagram` (C8.4a : « Instagram API with Instagram Login », scope
+minimal `instagram_business_basic`, jeton longue durée auto-rafraîchi, aucune
+révocation côté application — voir `docs/META_ARCHITECTURE.md`). Facebook, avec
+son flux Pages distinct, fera l'objet de sa propre sous-étape. Chaque provider
+est ajouté après vérification de sa documentation officielle. UI :
 `/app/[workspaceSlug]/accounts` + `src/features/accounts/account-forms.tsx`.
 
 ### Code

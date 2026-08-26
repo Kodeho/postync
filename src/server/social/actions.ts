@@ -171,5 +171,16 @@ export async function disconnectAction(
   }
 
   revalidatePath(`/app/${auth.membership.workspace.slug}/accounts`);
+
+  // Plateforme sans révocation possible côté application (Instagram) :
+  // l'utilisateur doit retirer l'autorisation lui-même, il faut le lui dire.
+  // Le message est porté au niveau de la PAGE et non du bouton : la ligne
+  // vient d'être supprimée, le formulaire n'est donc plus monté.
+  if (provider && !provider.revoke && provider.revokeNotice) {
+    redirect(
+      `/app/${auth.membership.workspace.slug}/accounts` +
+        `?notice=manual_revoke&platform=${encodeURIComponent(account.platform)}`,
+    );
+  }
   return { error: null };
 }

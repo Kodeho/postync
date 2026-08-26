@@ -1,7 +1,8 @@
 # C8.4 — Meta (Instagram + Facebook) : vérification d'architecture
 
-**Statut : DOCUMENT DE DÉCISION. Aucun code n'est écrit tant que la décision
-n'est pas prise.**
+**Statut : DÉCISION PRISE le 2026-08-26 — Option A (Instagram API with
+Instagram Login) validée. Implémentée en C8.4a (connexion uniquement, aucune
+publication). Facebook fera l'objet d'une sous-étape distincte.**
 
 Ce document répond à la question posée avant toute implémentation : POSTYNC
 doit-il intégrer Meta via **Facebook Login for Business + Pages** ou via
@@ -140,17 +141,42 @@ Facebook fera deux connexions.
 
 ---
 
-## 6. Décision attendue
+## 6. Décision et mise en œuvre
 
-- [ ] **Option A** — Instagram Login seul en C8.4, Facebook reporté.
-- [ ] **Option B** — Facebook Login for Business couvrant Instagram + Pages en
-      C8.4 (implique de faire évoluer le modèle `social_accounts` pour gérer
-      plusieurs actifs par autorisation).
-- [ ] Autre arbitrage.
+**Option A retenue** : Instagram API with Instagram Login. Facebook sera
+intégré séparément, avec son propre flux Meta/Pages.
 
-Prérequis côté Meta avant toute validation E2E, **quelle que soit l'option** :
-une application Meta créée sur `developers.facebook.com`, un compte Instagram
-professionnel de test, et les URIs de redirection POSTYNC enregistrées.
+Implémenté en C8.4a — `src/server/social/providers/instagram.ts` :
+
+| Élément | Valeur retenue, vérifiée sur la doc officielle |
+|---|---|
+| Autorisation | `https://www.instagram.com/oauth/authorize` |
+| Échange du code | `POST https://api.instagram.com/oauth/access_token` |
+| Jeton longue durée | `GET graph.instagram.com/access_token` (`ig_exchange_token`) |
+| Rafraîchissement | `GET graph.instagram.com/refresh_access_token` (`ig_refresh_token`) |
+| Identité | `GET graph.instagram.com/me?fields=user_id,username` |
+| Scope | `instagram_business_basic` **uniquement** |
+| Révocation | **aucun endpoint officiel** → non implémentée, notice utilisateur |
+| Identifiants | `INSTAGRAM_APP_ID` / `INSTAGRAM_APP_SECRET` (≠ App ID Facebook) |
+
+Trois points contre-intuitifs, encodés et testés plutôt que supposés :
+
+1. Le code d'autorisation revient avec `#_` accolé — Meta demande explicitement
+   de le retirer.
+2. Plusieurs réponses sont enveloppées dans un tableau `data` au lieu d'être
+   à plat.
+3. Le jeton issu de l'échange ne vaut qu'**une heure** : il est converti sans
+   délai en jeton longue durée, seul jeton conservé dans Vault. Il n'existe
+   **aucun refresh token distinct** — le jeton longue durée se rafraîchit
+   lui-même, et passé 60 jours sans rafraîchissement il faut reconnecter.
+
+Hors périmètre de C8.4a, volontairement : toute publication (Reels compris),
+le scope `instagram_business_content_publish`, et Facebook.
+
+Prérequis restants côté Meta avant validation E2E : une application Meta créée
+sur `developers.facebook.com` avec le produit Instagram, un compte Instagram
+professionnel de test, les URIs de redirection POSTYNC enregistrées et les
+identifiants Instagram placés dans l'environnement.
 
 ---
 

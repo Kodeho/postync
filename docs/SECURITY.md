@@ -122,6 +122,18 @@ autorité est celle de la page.
 - **Rôles** : connecter / reconnecter / déconnecter = owner + admin ;
   member = lecture seule. Déconnexion : révocation best effort côté
   plateforme, puis suppression (purge Vault par trigger).
+- **Révocation distante, cas par cas** : YouTube et TikTok exposent un endpoint
+  officiel de révocation, appelé à la déconnexion. Instagram (« Instagram API
+  with Instagram Login ») n'en documente AUCUN : le provider n'implémente donc
+  pas `revoke` — plutôt que d'appeler une URL non documentée — et la
+  déconnexion affiche `revokeNotice`, qui indique à l'utilisateur comment
+  retirer l'autorisation depuis Instagram. POSTYNC ne prétend jamais avoir
+  révoqué un accès qu'il n'a pas révoqué.
+- **Durée de vie des jetons** : aucune hypothèse de jeton « non expirant ».
+  Instagram délivre un jeton court (1 h) systématiquement converti en jeton
+  longue durée (~60 j) qui se rafraîchit lui-même — sans refresh token
+  distinct : `refresh_token_id` reste nul et `refreshUsesAccessToken` indique
+  que le rafraîchissement consomme l'access token courant.
 - Le quota `socialAccounts` du plan (C7, Full Access compris) est appliqué à
   la connexion, côté serveur.
 

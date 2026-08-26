@@ -22,7 +22,7 @@ import {
   needsReconnect,
   type SocialAccountRow,
 } from "@/server/social/accounts";
-import { isProviderAvailable } from "@/server/social/providers";
+import { getProvider, isProviderAvailable } from "@/server/social/providers";
 import { listSocialAccounts } from "@/server/social/queries";
 import type { SocialPlatform } from "@/types/platform";
 
@@ -66,6 +66,10 @@ const CALLBACK_MESSAGES: Record<string, { tone: "notice" | "error"; text: string
   },
 };
 
+function isPlatform(value: string): value is SocialPlatform {
+  return PLATFORMS.some((platform) => platform.key === value);
+}
+
 function statusTone(status: string): "success" | "warning" | "danger" {
   if (status === "active") return "success";
   if (status === "expired") return "warning";
@@ -92,7 +96,16 @@ export default async function AccountsPage({
 
   const flashKey =
     typeof query.connected === "string" ? "connected" : typeof query.error === "string" ? query.error : null;
-  const flash = flashKey ? CALLBACK_MESSAGES[flashKey] : undefined;
+  let flash = flashKey ? CALLBACK_MESSAGES[flashKey] : undefined;
+
+  // Déconnexion d'une plateforme qui n'expose aucune révocation côté app : le
+  // texte appartient au provider, la page ne fait que l'afficher.
+  if (!flash && query.notice === "manual_revoke" && typeof query.platform === "string") {
+    const notice = isPlatform(query.platform) ? getProvider(query.platform)?.revokeNotice : undefined;
+    if (notice) {
+      flash = { tone: "notice", text: `Compte déconnecté de POSTYNC. ${notice}` };
+    }
+  }
 
   const byPlatform = new Map<SocialPlatform, SocialAccountRow[]>();
   for (const account of accounts) {
