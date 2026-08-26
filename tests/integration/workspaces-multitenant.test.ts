@@ -391,11 +391,19 @@ describe.skipIf(!CONFIGURED)("C4 — isolation multi-tenant (API réelle)", () =
   });
 
   it("invariant — chaque workspace possède exactement une membership owner = owner_id", async () => {
-    const { data: workspaces } = await admin.from("workspaces").select("id, owner_id");
+    // Portée limitée aux workspaces des utilisateurs de ce fichier : la base
+    // est partagée et les autres suites d'intégration tournent en parallèle,
+    // un balayage global observerait leurs créations/nettoyages en cours.
+    const userIds = Object.values(ids).filter(Boolean);
+    const { data: workspaces } = await admin
+      .from("workspaces")
+      .select("id, owner_id")
+      .in("owner_id", userIds);
     const { data: owners } = await admin
       .from("workspace_members")
       .select("workspace_id, user_id")
-      .eq("role", "owner");
+      .eq("role", "owner")
+      .in("user_id", userIds);
 
     expect(workspaces?.length).toBeGreaterThan(0);
     for (const ws of workspaces ?? []) {

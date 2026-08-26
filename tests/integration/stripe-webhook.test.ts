@@ -42,7 +42,6 @@ const EMAIL = "postync-c7-webhook@example.com";
 const NO_SESSION = { auth: { persistSession: false, autoRefreshToken: false } };
 
 let admin: SupabaseClient;
-let userId = "";
 let workspaceId = "";
 let post: (typeof import("@/app/api/stripe/webhook/route"))["POST"];
 
@@ -144,23 +143,26 @@ describe.skipIf(!CONFIGURED)("C7 — webhook Stripe (route réelle + DB réelle)
     admin = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, NO_SESSION);
     await cleanup();
 
-    const { data: created, error } = await admin.auth.admin.createUser({
+    const password = `C7-${randomUUID()}`;
+    const { error } = await admin.auth.admin.createUser({
       email: EMAIL,
-      password: `C7-${randomUUID()}`,
+      password,
       email_confirm: true,
       user_metadata: { display_name: "C7 Webhook" },
     });
     if (error) throw error;
-    userId = created.user.id;
 
-    const { data: ws, error: wsError } = await admin
-      .from("workspaces")
-      .insert({ name: "C7 Webhook WS", slug: `c7-webhook-${randomUUID().slice(0, 8)}`, owner_id: userId })
-      .select("id")
-      .single();
+    // Le workspace est créé via la RPC `create_workspace`, comme en production :
+    // workspace + membership owner dans la même transaction. Un `insert` direct
+    // en service_role laisserait une fenêtre où le workspace n'a pas de owner.
+    const asOwner = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.NEXT_PUBLIC_SUPABASE_ANON_KEY, NO_SESSION);
+    const { error: signInError } = await asOwner.auth.signInWithPassword({ email: EMAIL, password });
+    if (signInError) throw signInError;
+    const { data: ws, error: wsError } = await asOwner.rpc("create_workspace", {
+      p_name: `C7 Webhook WS ${randomUUID().slice(0, 8)}`,
+    });
     if (wsError) throw wsError;
-    workspaceId = ws.id;
-    await admin.from("workspace_members").insert({ workspace_id: workspaceId, user_id: userId, role: "owner" });
+    workspaceId = (ws as { id: string }).id;
   }, 60_000);
 
   afterAll(async () => {
