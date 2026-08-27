@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { probeFailureMessage, probeRemoteMedia, type MediaProbe } from "./probe";
 import {
   canStoreMore,
   extensionForMime,
@@ -60,6 +61,7 @@ export type MediaFailureCode =
   | "quota_exceeded"
   | "asset_not_found"
   | "not_ready"
+  | "invalid_media"
   | "storage_failed";
 
 export type RequestUploadResult =
@@ -159,7 +161,7 @@ export async function requestUpload(
 
 export type FinalizeResult =
   | { ok: true; asset: MediaAsset }
-  | { ok: false; code: MediaFailureCode };
+  | { ok: false; code: MediaFailureCode; message?: string };
 
 /**
  * Confirme un téléversement et enregistre les caractéristiques mesurées.
@@ -174,19 +176,17 @@ export async function finalizeUpload(
   input: {
     workspaceId: string;
     assetId: string;
-    probe: {
-      width: number | null;
-      height: number | null;
-      durationSeconds: number | null;
-      videoCodec: string | null;
-    } | null;
-    /** Raison du refus quand l'analyse a échoué. */
-    invalidReason?: string;
+    /**
+     * Mesure imposée de l'extérieur — réservée aux tests. En usage réel, le
+     * serveur mesure lui-même : le navigateur n'est pas une source de vérité
+     * sur les dimensions d'un fichier.
+     */
+    probe?: MediaProbe | null;
   },
 ): Promise<FinalizeResult> {
   const { data: asset } = await deps.db
     .from("media_assets")
-    .select("id, workspace_id, storage_path, kind, byte_size, status")
+    .select("id, workspace_id, storage_path, kind, byte_size, status, mime_type")
     .eq("id", input.assetId)
     .eq("workspace_id", input.workspaceId)
     .maybeSingle<{
@@ -196,6 +196,7 @@ export async function finalizeUpload(
       kind: string;
       byte_size: number;
       status: string;
+      mime_type: string;
     }>();
   if (!asset) {
     return { ok: false, code: "asset_not_found" };
@@ -214,18 +215,32 @@ export async function finalizeUpload(
     return { ok: false, code: "storage_failed" };
   }
 
-  if (input.probe === null) {
-    await markInvalid(deps.db, asset.id, input.invalidReason ?? "analyse_impossible");
-    return { ok: false, code: "not_ready" };
+  // Mesure du fichier RÉELLEMENT déposé. Une URL signée très courte suffit :
+  // seuls les premiers octets sont lus, et elle n'est pas conservée.
+  let probe = input.probe ?? null;
+  if (probe === null) {
+    const { data: signed } = await deps.db.storage
+      .from(BUCKET)
+      .createSignedUrl(asset.storage_path, 120);
+    if (!signed?.signedUrl) {
+      await markInvalid(deps.db, asset.id, "analyse_impossible");
+      return { ok: false, code: "storage_failed" };
+    }
+    const mesure = await probeRemoteMedia(signed.signedUrl, asset.mime_type);
+    if (typeof mesure === "string") {
+      await markInvalid(deps.db, asset.id, mesure);
+      return { ok: false, code: "invalid_media", message: probeFailureMessage(mesure) };
+    }
+    probe = mesure;
   }
 
   const { data: updated, error } = await deps.db
     .from("media_assets")
     .update({
-      width: input.probe.width,
-      height: input.probe.height,
-      duration_seconds: input.probe.durationSeconds,
-      video_codec: input.probe.videoCodec,
+      width: probe.width,
+      height: probe.height,
+      duration_seconds: probe.durationSeconds,
+      video_codec: probe.videoCodec,
       status: "ready",
       status_detail: null,
     })

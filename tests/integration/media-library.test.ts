@@ -181,7 +181,7 @@ describe.skipIf(!CONFIGURED)("C9 — médiathèque (bucket et base réels)", () 
     const finalise = await finalizeUpload(deps(), {
       workspaceId,
       assetId: demande.assetId,
-      probe: { width: 720, height: 1280, durationSeconds: 30, videoCodec: "avc1" },
+      probe: { width: 720, height: 1280, durationSeconds: 30, videoCodec: "avc1", fastStart: true },
     });
     expect(finalise.ok).toBe(true);
     if (!finalise.ok) return;
@@ -206,7 +206,7 @@ describe.skipIf(!CONFIGURED)("C9 — médiathèque (bucket et base réels)", () 
     const finalise = await finalizeUpload(deps(), {
       workspaceId,
       assetId: demande.assetId,
-      probe: { width: 720, height: 1280, durationSeconds: 10, videoCodec: "avc1" },
+      probe: { width: 720, height: 1280, durationSeconds: 10, videoCodec: "avc1", fastStart: true },
     });
     expect(finalise).toMatchObject({ ok: false, code: "storage_failed" });
 
@@ -300,7 +300,7 @@ describe.skipIf(!CONFIGURED)("C9 — médiathèque (bucket et base réels)", () 
     await finalizeUpload(deps(), {
       workspaceId,
       assetId: demande.assetId,
-      probe: { width: 720, height: 1280, durationSeconds: 30, videoCodec: "avc1" },
+      probe: { width: 720, height: 1280, durationSeconds: 30, videoCodec: "avc1", fastStart: true },
     });
 
     // Identifiant réel, mais workspace qui n'est pas le sien.
@@ -358,7 +358,7 @@ describe.skipIf(!CONFIGURED)("C9 — médiathèque (bucket et base réels)", () 
     await finalizeUpload(deps(), {
       workspaceId,
       assetId: demande.assetId,
-      probe: { width: 720, height: 1280, durationSeconds: 30, videoCodec: "avc1" },
+      probe: { width: 720, height: 1280, durationSeconds: 30, videoCodec: "avc1", fastStart: true },
     });
 
     const signe = await signMediaUrl(deps(), { workspaceId, assetId: demande.assetId });
@@ -397,7 +397,7 @@ describe.skipIf(!CONFIGURED)("C9 — médiathèque (bucket et base réels)", () 
     await finalizeUpload(deps(), {
       workspaceId,
       assetId: demande.assetId,
-      probe: { width: 720, height: 1280, durationSeconds: 30, videoCodec: "avc1" },
+      probe: { width: 720, height: 1280, durationSeconds: 30, videoCodec: "avc1", fastStart: true },
     });
 
     expect(await deleteAsset(deps(), { workspaceId, assetId: demande.assetId })).toEqual({
