@@ -53,18 +53,41 @@ async function postForm(url: string, body: Record<string, string>): Promise<Resp
   });
 }
 
-/** Code d'erreur court d'une réponse TikTok (jamais le corps complet). */
-async function tiktokErrorCode(response: Response): Promise<string> {
+/**
+ * Lecture d'une réponse du serveur d'autorisation TikTok.
+ *
+ * Constaté en conditions réelles le 2026-08-27 : TikTok répond **HTTP 200**
+ * avec un corps `{"error":"invalid_client","error_description":"Client key or
+ * secret is incorrect."}`. Ne se fier qu'à `response.ok` laisse donc passer
+ * l'erreur, qui ne se manifeste plus loin que par un access_token absent — un
+ * symptôme, pas la cause. On lit le champ `error` documenté, quel que soit le
+ * statut HTTP.
+ *
+ * Seul le CODE sort d'ici, jamais `error_description` ni le corps : le code
+ * suffisait à identifier la panne du 2026-08-27 (`invalid_client` = paire
+ * clé/secret refusée), et la règle « pas de corps brut » reste entière.
+ *
+ * Renvoie `null` quand le corps est vide : la révocation réussie n'en a pas.
+ */
+async function readOAuthPayload(
+  response: Response,
+  contexte: string,
+): Promise<TikTokTokenPayload | null> {
+  let payload: TikTokTokenPayload | null = null;
   try {
-    const payload = (await response.json()) as {
-      error?: string | { code?: string };
-      error_description?: string;
-    };
-    if (typeof payload.error === "string") return payload.error;
-    return payload.error?.code ?? "";
+    payload = (await response.json()) as TikTokTokenPayload;
   } catch {
-    return "";
+    payload = null;
   }
+
+  const code = payload?.error;
+  if (typeof code === "string" && code.length > 0 && code !== "ok") {
+    throw new Error(`tiktok ${contexte}: ${code}`);
+  }
+  if (!response.ok) {
+    throw new Error(`tiktok ${contexte}: HTTP ${response.status}`);
+  }
+  return payload;
 }
 
 type TikTokTokenPayload = {
@@ -75,11 +98,12 @@ type TikTokTokenPayload = {
   scope?: string;
   open_id?: string;
   error?: string;
+  error_description?: string;
 };
 
 function toTokenSet(payload: TikTokTokenPayload): TokenSet {
   if (!payload.access_token) {
-    throw new Error(`réponse token sans access_token ${payload.error ?? ""}`.trim());
+    throw new Error("réponse token sans access_token");
   }
   const now = Date.now();
   return {
@@ -120,10 +144,7 @@ export const tiktokProvider: SocialProvider = {
       grant_type: "authorization_code",
       redirect_uri: redirectUri,
     });
-    if (!response.ok) {
-      throw new Error(`tiktok token: HTTP ${response.status} ${await tiktokErrorCode(response)}`);
-    }
-    return toTokenSet((await response.json()) as TikTokTokenPayload);
+    return toTokenSet((await readOAuthPayload(response, "token")) ?? {});
   },
 
   async fetchIdentity(accessToken): Promise<SocialIdentity> {
@@ -132,15 +153,17 @@ export const tiktokProvider: SocialProvider = {
     const response = await fetch(url, {
       headers: { authorization: `Bearer ${accessToken}` },
     });
-    if (!response.ok) {
-      throw new Error(`tiktok user/info: HTTP ${response.status} ${await tiktokErrorCode(response)}`);
-    }
-    const payload = (await response.json()) as {
+    const payload = (await response.json().catch(() => ({}))) as {
       data?: { user?: { open_id?: string; display_name?: string; avatar_url_100?: string } };
       error?: { code?: string };
     };
+    // Ici l'erreur est un OBJET (`error.code`), pas une chaîne : forme propre
+    // aux API de données, distincte de celle du serveur d'autorisation.
     if (payload.error?.code && payload.error.code !== "ok") {
       throw new Error(`tiktok user/info: ${payload.error.code}`);
+    }
+    if (!response.ok) {
+      throw new Error(`tiktok user/info: HTTP ${response.status}`);
     }
     const user = payload.data?.user;
     if (!user?.open_id) {
@@ -160,21 +183,21 @@ export const tiktokProvider: SocialProvider = {
       grant_type: "refresh_token",
       refresh_token: refreshToken,
     });
-    if (!response.ok) {
-      throw new Error(`tiktok refresh: HTTP ${response.status} ${await tiktokErrorCode(response)}`);
-    }
     // Rotation : le refresh_token renvoyé peut être NOUVEAU — le TokenSet le
     // porte toujours, l'appelant remplace systématiquement l'ancien.
-    return toTokenSet((await response.json()) as TikTokTokenPayload);
+    return toTokenSet((await readOAuthPayload(response, "refresh")) ?? {});
   },
 
   async revoke({ accessToken }) {
     // La révocation officielle porte sur l'access token.
     if (!accessToken) return;
-    await postForm(REVOKE_ENDPOINT, {
+    const response = await postForm(REVOKE_ENDPOINT, {
       client_key: clientKey(),
       client_secret: clientSecret(),
       token: accessToken,
     });
+    // Même piège qu'à l'échange. L'appelant traite l'échec de révocation comme
+    // non bloquant — encore faut-il qu'il puisse le VOIR.
+    await readOAuthPayload(response, "revoke");
   },
 };

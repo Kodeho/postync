@@ -102,7 +102,42 @@ describe("échange de code et refresh", () => {
     );
     await expect(
       tiktokProvider.exchangeCode({ code: "bad", codeVerifier: null, redirectUri: REDIRECT }),
-    ).rejects.toThrow("tiktok token: HTTP 400 invalid_grant");
+    ).rejects.toThrow("tiktok token: invalid_grant");
+    // Ni le libellé de TikTok, ni le log_id ne remontent.
+    await expect(
+      tiktokProvider.exchangeCode({ code: "bad", codeVerifier: null, redirectUri: REDIRECT }),
+    ).rejects.not.toThrow("detail-interne");
+  });
+
+  it("échec annoncé en HTTP 200 : détecté quand même (panne réelle du 2026-08-27)", async () => {
+    // TikTok refuse la paire client_key/client_secret avec un statut 200 et un
+    // champ `error`. Ne tester que `response.ok` laissait passer l'erreur, qui
+    // ne se voyait ensuite que par un access_token manquant — le symptôme, pas
+    // la cause. Le E2E réel a coûté un aller-retour complet à cause de ça.
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: "invalid_client",
+          error_description: "Client key or secret is incorrect.",
+          log_id: "2026082714144789146F7F13667D73D5C8",
+        }),
+        { status: 200 },
+      ),
+    );
+    await expect(
+      tiktokProvider.exchangeCode({ code: "bon", codeVerifier: null, redirectUri: REDIRECT }),
+    ).rejects.toThrow("tiktok token: invalid_client");
+  });
+
+  it("refresh refusé en HTTP 200 : remonté comme invalid_grant, donc traité en révocation", async () => {
+    // C'est ce code qui décide, dans token.ts, si le compte passe en « révoqué »
+    // (reconnexion nécessaire) plutôt qu'en simple « erreur » passagère.
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ error: "invalid_grant" }), { status: 200 }),
+    );
+    await expect(tiktokProvider.refresh!("rft.perime")).rejects.toThrow(
+      "tiktok refresh: invalid_grant",
+    );
   });
 
   it("refresh — ROTATION : le nouveau refresh_token remplace l'ancien", async () => {
@@ -172,5 +207,25 @@ describe("révocation", () => {
     const body = new URLSearchParams(String(fetchMock.mock.calls[0][1]?.body));
     expect(body.get("token")).toBe("act.tk-123");
     expect(body.get("client_key")).toBe("test-client-key");
+  });
+
+  it("corps vide : succès, pas une erreur", async () => {
+    // La doc annonce une réponse SANS corps en cas de succès — un JSON illisible
+    // ne doit donc pas être pris pour un échec.
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 200 }));
+    await expect(
+      tiktokProvider.revoke!({ accessToken: "act.tk-123", refreshToken: null }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("révocation refusée : l'échec est REMONTÉ, pas avalé", async () => {
+    // La déconnexion locale reste prioritaire et non bloquante, mais l'appelant
+    // doit pouvoir journaliser qu'une autorisation reste vivante côté TikTok.
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ error: "invalid_client" }), { status: 200 }),
+    );
+    await expect(
+      tiktokProvider.revoke!({ accessToken: "act.tk-123", refreshToken: null }),
+    ).rejects.toThrow("tiktok revoke: invalid_client");
   });
 });

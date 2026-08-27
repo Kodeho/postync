@@ -165,8 +165,13 @@ export async function disconnectAction(
         account.refresh_token_id ? vaultRead(db, account.refresh_token_id) : null,
       ]);
       await provider.revoke({ accessToken, refreshToken });
-    } catch {
-      // La déconnexion locale prime : un échec de révocation distante n'empêche rien.
+    } catch (error) {
+      // La déconnexion locale prime : un échec de révocation distante n'empêche
+      // rien. Il doit tout de même laisser une TRACE — l'autorisation reste
+      // vivante côté plateforme, et rien ne le signalait jusqu'ici.
+      console.error(
+        `[social:revoke] ${account.platform}: ${error instanceof Error ? error.message : "erreur"}`,
+      );
     }
   }
 
