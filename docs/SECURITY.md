@@ -133,7 +133,19 @@ autorité est celle de la page.
   Instagram délivre un jeton court (1 h) systématiquement converti en jeton
   longue durée (~60 j) qui se rafraîchit lui-même — sans refresh token
   distinct : `refresh_token_id` reste nul et `refreshUsesAccessToken` indique
-  que le rafraîchissement consomme l'access token courant.
+  que le rafraîchissement consomme l'access token courant. TikTok délivre un
+  access token de 24 h et un refresh token de 365 jours — mesuré en conditions
+  réelles le 2026-08-27, conforme à sa documentation. Le refresh renvoyé
+  « peut » différer de celui envoyé : POSTYNC le remplace SYSTÉMATIQUEMENT,
+  qu'il ait changé ou non, et ne détruit l'ancien secret qu'après écriture.
+- **Ce qu'une révocation TikTok emporte réellement** : vérifié en conditions
+  réelles — après appel de `/v2/oauth/revoke/`, l'access token est refusé
+  (`access_token_invalid`) ET le refresh token aussi (`invalid_grant`). Ce
+  dernier code est celui qui fait basculer le compte en `revoked` plutôt qu'en
+  erreur passagère : l'interface affiche « Accès révoqué » et propose une
+  reconnexion. Un échec de révocation distante reste non bloquant pour la
+  déconnexion locale, mais il est désormais journalisé — une autorisation
+  restée vivante côté plateforme ne doit pas passer inaperçue.
 - Le quota `socialAccounts` du plan (C7, Full Access compris) est appliqué à
   la connexion, côté serveur.
 

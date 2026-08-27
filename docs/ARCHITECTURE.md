@@ -164,7 +164,9 @@ owner/admin), `callback` (traitement générique injecté de dépendances),
 `access_type=offline` + `prompt=consent`, autorisation incrémentale, scope
 minimal `youtube.readonly` ; `youtube.upload` sera ajouté en incrémental à
 l'étape publication), `providers/tiktok` (C8.3 : Login Kit Web v2, scopes en
-virgules, rotation du refresh token, scope minimal `user.info.basic`),
+virgules, rotation du refresh token, scope minimal `user.info.basic` ; le
+serveur d'autorisation annonce ses erreurs en **HTTP 200** avec un champ
+`error`, donc la lecture ne se fie jamais au seul statut HTTP),
 `providers/instagram` (C8.4a : « Instagram API with Instagram Login », scope
 minimal `instagram_business_basic`, jeton longue durée auto-rafraîchi, aucune
 révocation côté application — voir `docs/META_ARCHITECTURE.md`). Facebook, avec
