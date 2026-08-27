@@ -92,6 +92,13 @@ export interface SocialPublisher {
     accessToken: string;
     providerAccountId: string;
     containerId: string;
+    /**
+     * Légende. Certaines plateformes la portent sur le CONTENEUR (Instagram),
+     * d'autres au moment de la publication (Facebook : `description` de la
+     * phase `finish`). Elle est donc fournie aux deux étapes ; à chaque
+     * provider d'utiliser celle qui le concerne.
+     */
+    caption?: string | null;
   }): Promise<{ providerMediaId: string }>;
   /** Lien public du média publié — best effort, jamais bloquant. */
   fetchPermalink?(input: { accessToken: string; providerMediaId: string }): Promise<string | null>;

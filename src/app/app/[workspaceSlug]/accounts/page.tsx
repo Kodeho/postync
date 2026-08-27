@@ -240,6 +240,7 @@ export default async function AccountsPage({
                           {canManage && publisher ? (
                             <PublishForm
                               workspaceSlug={workspace.slug}
+                              platform={key}
                               accountId={account.id}
                               accountLabel={account.display_name ?? PLATFORM_LABELS[key]}
                               disabledReason={publishDisabledReason}

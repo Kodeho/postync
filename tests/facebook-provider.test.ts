@@ -268,6 +268,47 @@ describe("publication d'un Reel", () => {
     expect(result.providerMediaId).toBe("7788");
   });
 
+  it("la legende part en `description` a la phase finish, pas au conteneur", async () => {
+    // Contrairement a Instagram, Facebook porte la legende sur la PUBLICATION.
+    // L'envoyer a la phase start n'aurait aucun effet : Reel sans texte.
+    const startMock = mockFetchSequence(json({ video_id: "7788" }), json({ success: true }));
+    await facebookPublisher.createContainer({
+      accessToken: PAGE_TOKEN,
+      providerAccountId: PAGE_ID,
+      mediaKind: "reel",
+      mediaUrl: "https://cdn.example.com/reel.mp4",
+      caption: "Ma legende",
+    });
+    expect(
+      new URLSearchParams(String(startMock.mock.calls[0][1]?.body)).get("description"),
+    ).toBeNull();
+    vi.restoreAllMocks();
+
+    const finishMock = mockFetchSequence(json({ success: true }));
+    await facebookPublisher.publishContainer({
+      accessToken: PAGE_TOKEN,
+      providerAccountId: PAGE_ID,
+      containerId: "7788",
+      caption: "Ma legende",
+    });
+    expect(
+      new URLSearchParams(String(finishMock.mock.calls[0][1]?.body)).get("description"),
+    ).toBe("Ma legende");
+  });
+
+  it("legende absente : aucun parametre description envoye", async () => {
+    const fetchMock = mockFetchSequence(json({ success: true }));
+    await facebookPublisher.publishContainer({
+      accessToken: PAGE_TOKEN,
+      providerAccountId: PAGE_ID,
+      containerId: "7788",
+      caption: null,
+    });
+    expect(
+      new URLSearchParams(String(fetchMock.mock.calls[0][1]?.body)).get("description"),
+    ).toBeNull();
+  });
+
   it("statut : ready seulement quand video_status vaut ready", async () => {
     mockFetchSequence(json({ status: { video_status: "ready" } }));
     await expect(

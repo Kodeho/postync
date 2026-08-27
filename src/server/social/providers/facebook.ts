@@ -278,17 +278,26 @@ export const facebookPublisher: SocialPublisher = {
     return normalizeReelStatus((await response.json()) as ReelStatusPayload);
   },
 
-  /** Phase 3 : publication effective du Reel. */
-  async publishContainer({ accessToken, providerAccountId, containerId }) {
+  /**
+   * Phase 3 : publication effective du Reel.
+   *
+   * C'est ICI que se pose la légende, via `description` — contrairement à
+   * Instagram qui la porte sur le conteneur. L'envoyer à la phase `start`
+   * n'aurait aucun effet : le Reel serait publié sans texte.
+   */
+  async publishContainer({ accessToken, providerAccountId, containerId, caption }) {
+    const params: Record<string, string> = {
+      upload_phase: "finish",
+      video_id: containerId,
+      video_state: "PUBLISHED",
+      access_token: accessToken,
+    };
+    if (caption) params.description = caption;
+
     const response = await fetch(`${GRAPH}/${providerAccountId}/video_reels`, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        upload_phase: "finish",
-        video_id: containerId,
-        video_state: "PUBLISHED",
-        access_token: accessToken,
-      }).toString(),
+      body: new URLSearchParams(params).toString(),
     });
     if (!response.ok) {
       throw new SocialPublishError(

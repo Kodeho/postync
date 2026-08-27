@@ -183,6 +183,8 @@ async function finishPublication(
     providerAccountId: string;
     containerId: string;
     status: ContainerStatus;
+    /** Portée jusqu'ici : Facebook la pose à la publication, pas au conteneur. */
+    caption: string | null;
   },
 ): Promise<PublishOutcome> {
   const publisher = provider.publisher!;
@@ -217,6 +219,7 @@ async function finishPublication(
         accessToken,
         providerAccountId,
         containerId,
+        caption: input.caption,
       }));
     } catch (error) {
       const code = shortCode(error);
@@ -382,6 +385,7 @@ export async function publishToSocialAccount(
     providerAccountId: account.provider_account_id,
     containerId,
     status,
+    caption: request.caption,
   });
 }
 
@@ -397,7 +401,7 @@ export async function resumePublication(
 
   const { data: publication } = await db
     .from("social_publications")
-    .select("id, workspace_id, platform, provider_account_id, container_id, status, social_account_id")
+    .select("id, workspace_id, platform, provider_account_id, container_id, status, social_account_id, caption")
     .eq("id", input.publicationId)
     .eq("workspace_id", input.workspaceId)
     .maybeSingle<{
@@ -408,6 +412,7 @@ export async function resumePublication(
       container_id: string | null;
       status: string;
       social_account_id: string | null;
+      caption: string | null;
     }>();
   if (!publication) {
     return { ok: false, code: "account_not_found", publicationId: null };
@@ -459,5 +464,7 @@ export async function resumePublication(
     providerAccountId: publication.provider_account_id,
     containerId: publication.container_id,
     status,
+    // La légende vient de la ligne : une reprise ne perd pas le texte.
+    caption: publication.caption,
   });
 }

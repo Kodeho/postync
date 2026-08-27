@@ -20,13 +20,32 @@ import { IDLE_PUBLISH_ACTION } from "@/server/social/action-state";
  * qu'il va chercher lui-même. Tant que l'étape « media » n'apporte pas de
  * stockage, l'URL est saisie à la main.
  */
+/**
+ * Contraintes de média, par plateforme. Elles diffèrent nettement : un Reel
+ * Facebook impose le 9:16 et 90 secondes là où Instagram accepte presque tout
+ * ratio jusqu'à 15 minutes. Afficher les mêmes règles partout induirait
+ * l'utilisateur en erreur.
+ */
+const MEDIA_HINTS: Record<string, { reel: string; image: string }> = {
+  instagram: {
+    reel: "MP4 ou MOV, H264 ou HEVC, 3 s à 15 min, 300 Mo maximum, 9:16 recommandé.",
+    image: "JPEG uniquement.",
+  },
+  facebook: {
+    reel: "MP4, H264 ou HEVC, 3 à 90 s, ratio 9:16 OBLIGATOIRE, minimum 540 × 960, 24 à 60 FPS.",
+    image: "Non pris en charge pour l'instant sur les Pages.",
+  },
+};
+
 export function PublishForm({
   workspaceSlug,
+  platform,
   accountId,
   accountLabel,
   disabledReason,
 }: {
   workspaceSlug: string;
+  platform: string;
   accountId: string;
   accountLabel: string;
   /** Non nul : la publication est impossible et la raison est affichée. */
@@ -86,11 +105,7 @@ export function PublishForm({
           type="url"
           required
           placeholder="https://exemple.com/video.mp4"
-          hint={
-            mediaKind === "reel"
-              ? "MP4 ou MOV, H264 ou HEVC, 3 s à 15 min, 300 Mo maximum, 9:16 recommandé."
-              : "JPEG uniquement."
-          }
+          hint={(MEDIA_HINTS[platform] ?? MEDIA_HINTS.instagram)[mediaKind]}
         />
 
         <label className="flex flex-col gap-1.5 text-sm">
