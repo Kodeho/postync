@@ -474,6 +474,41 @@ Aucune colonne sensible n'existe dans cette table, mais la liste blanche
 reste explicite : une colonne ajoutée plus tard n'est pas lisible tant
 qu'elle n'a pas été ajoutée au `grant`.
 
+## Connexions en attente de sélection (C8.4c)
+
+### Table `social_connection_drafts`
+
+Facebook casse le modèle des trois autres réseaux : **une autorisation donne
+accès à N Pages**, et l'utilisateur doit choisir. Entre le callback et ce
+choix, il faut conserver le jeton UTILISATEUR le temps d'énumérer les Pages —
+sans jamais le faire transiter par le navigateur, et sans qu'il survive à la
+sélection.
+
+D'où un brouillon calqué sur `oauth_states` : purement serveur, TTL 15
+minutes, jeton dans Vault, secret purgé par trigger à la suppression.
+
+| Colonne | Rôle |
+| --- | --- |
+| `workspace_id`, `user_id` | propriétaires du brouillon (`on delete cascade`) |
+| `platform`, `redirect_slug` | plateforme visée et retour UI |
+| `user_token_id` | référence Vault du jeton utilisateur |
+| `scopes` | permissions réellement accordées |
+| `expires_at` | TTL court ; un abandon se résout tout seul |
+
+Nettoyage opportuniste des brouillons périmés au démarrage de chaque nouveau
+flux : pas de cron nécessaire.
+
+### RLS et privilèges (C8.4c)
+
+| Table | authenticated |
+| --- | --- |
+| `social_connection_drafts` | **aucun accès** (ni grant ni politique), comme `oauth_states` |
+
+Une Page connectée devient une ligne `social_accounts` ordinaire, avec SON
+jeton de Page. `token_expires_at` y vaut `null` : un jeton de Page n'a pas de
+date d'expiration — ce qui ne veut pas dire qu'il est éternel, il reste
+invalidable.
+
 ## Appliquer la migration
 
 ```powershell

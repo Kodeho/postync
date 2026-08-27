@@ -73,6 +73,19 @@ const CALLBACK_MESSAGES: Record<string, { tone: "notice" | "error"; text: string
     tone: "error",
     text: "La plateforme n'a pas finalisé la connexion. Réessayez.",
   },
+  // Sélection de Pages (Facebook) : le brouillon a une durée de vie courte.
+  draft_not_found: {
+    tone: "error",
+    text: "La sélection de Pages a expiré ou a déjà été utilisée. Relancez la connexion.",
+  },
+  provider_unavailable: {
+    tone: "error",
+    text: "Cette plateforme n'est pas disponible actuellement.",
+  },
+  listing_failed: {
+    tone: "error",
+    text: "Impossible de récupérer vos Pages auprès de la plateforme. Réessayez.",
+  },
 };
 
 function isPlatform(value: string): value is SocialPlatform {

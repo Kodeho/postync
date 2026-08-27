@@ -137,7 +137,7 @@ describe("identité de chaîne", () => {
         { status: 200 },
       ),
     );
-    const identity = await youtubeProvider.fetchIdentity("at-123");
+    const identity = await youtubeProvider.fetchIdentity!("at-123");
     const url = new URL(String(fetchMock.mock.calls[0][0]));
     expect(url.origin + url.pathname).toBe("https://www.googleapis.com/youtube/v3/channels");
     expect(url.searchParams.get("part")).toBe("snippet");
@@ -153,7 +153,7 @@ describe("identité de chaîne", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ items: [] }), { status: 200 }),
     );
-    await expect(youtubeProvider.fetchIdentity("at-123")).rejects.toBeInstanceOf(
+    await expect(youtubeProvider.fetchIdentity!("at-123")).rejects.toBeInstanceOf(
       SocialIdentityUnavailableError,
     );
   });
@@ -165,7 +165,7 @@ describe("identité de chaîne", () => {
         { status: 401 },
       ),
     );
-    await expect(youtubeProvider.fetchIdentity("at-123")).rejects.toBeInstanceOf(
+    await expect(youtubeProvider.fetchIdentity!("at-123")).rejects.toBeInstanceOf(
       SocialIdentityUnavailableError,
     );
   });

@@ -183,6 +183,20 @@ c'est ce découpage qui permettra d'ajouter TikTok et YouTube sans toucher à
 l'orchestration. UI : `src/features/accounts/publish-form.tsx`.
 Détail du fonctionnement dans `docs/PUBLISHING_ENGINE.md`.
 
+### Actifs multiples (C8.4c, Facebook)
+
+Facebook est le premier réseau où UNE autorisation donne accès à PLUSIEURS
+comptes publiables. Le contrat de provider distingue désormais deux familles :
+à identité unique (`fetchIdentity` — YouTube, TikTok, Instagram) ou à actifs
+multiples (`assets` — Facebook). Le callback générique aiguille sur cette
+seule base.
+
+`connection-draft.ts` porte la connexion entre le callback et le choix de
+l'utilisateur ; `assets.ts` liste les actifs sans jamais laisser sortir un
+jeton, puis crée une ligne `social_accounts` par Page retenue. UI :
+`/app/[workspaceSlug]/accounts/select` +
+`src/features/accounts/asset-selection-form.tsx`.
+
 ### Code
 
 - `src/features/workspaces/actions.ts` — Server Action `createWorkspaceAction`

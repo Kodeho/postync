@@ -137,6 +137,25 @@ autorité est celle de la page.
 - Le quota `socialAccounts` du plan (C7, Full Access compris) est appliqué à
   la connexion, côté serveur.
 
+## Sélection d'actifs (C8.4c, Pages Facebook)
+
+- **Le jeton d'une Page ne quitte jamais le serveur.** L'écran de sélection ne
+  reçoit qu'un identifiant, un nom, un avatar et deux booléens. Un test
+  vérifie qu'aucun jeton ne figure dans ce que la couche renvoie.
+- **Le jeton utilisateur ne survit pas à la sélection** : il vit dans Vault le
+  temps d'énumérer les Pages, porté par un brouillon à TTL court, et meurt
+  avec lui — y compris si l'utilisateur abandonne.
+- **Triple filtre sur le brouillon** : id + workspace + utilisateur. Un
+  identifiant de brouillon volé ne suffit pas.
+- **Aucun actif n'est connecté sans figurer dans le brouillon** : les
+  identifiants venus du navigateur sont recoupés avec la liste réelle.
+- **Une Page sans droit de publication est refusée** plutôt que connectée :
+  pas de fausse promesse.
+- **Révocation** : `DELETE /<user-id>/permissions` couperait TOUTES les Pages
+  d'un coup. Déconnecter une Page ne doit pas en couper d'autres, donc la
+  révocation distante n'est pas câblée ; une notice explique à l'utilisateur
+  comment retirer l'accès lui-même.
+
 ## Publication (C8.4b)
 
 - **Ordre des contrôles**, tous obligatoires et tous côté serveur : URL de

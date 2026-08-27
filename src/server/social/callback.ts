@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { canConnectMore } from "./accounts";
+import { createConnectionDraft } from "./connection-draft";
 import { consumeOAuthState } from "./oauth-state";
 import { SocialIdentityUnavailableError, type SocialProvider } from "./providers/types";
 import { vaultDelete, vaultStore } from "./vault";
@@ -30,9 +31,15 @@ import { vaultDelete, vaultStore } from "./vault";
 export type CallbackResult = {
   /** Slug de retour ; null si inconnu (state invalide). */
   slug: string | null;
+  /**
+   * Identifiant du brouillon quand la plateforme expose PLUSIEURS actifs :
+   * l'utilisateur doit encore choisir. Null dans tous les autres cas.
+   */
+  draftId?: string | null;
   /** `connected` ou un code d'erreur court (jamais de token ni de détail brut). */
   outcome:
     | "connected"
+    | "select_assets"
     | "invalid_state"
     | "not_authorized"
     | "provider_denied"
@@ -92,14 +99,51 @@ export async function handleOAuthCallback(
     return { slug, outcome: "not_authorized" };
   }
 
-  // Échange du code puis identité du compte — tokens en mémoire serveur only.
-  let tokens, identity;
+  // Échange du code — tokens en mémoire serveur only.
+  let tokens;
   try {
     tokens = await deps.provider.exchangeCode({
       code: params.get("code") as string,
       codeVerifier: state.codeVerifier,
       redirectUri: deps.redirectUri,
     });
+  } catch (error) {
+    console.error(
+      `[oauth:${deps.provider.platform}] échange: ${error instanceof Error ? error.message : "erreur"}`,
+    );
+    return { slug, outcome: "exchange_failed" };
+  }
+
+  // Plateforme à actifs multiples (Pages Facebook) : UNE autorisation donne
+  // accès à plusieurs comptes publiables. On ne connecte rien sans choix
+  // explicite — la connexion est mise en attente, le jeton utilisateur va
+  // dans Vault et l'utilisateur sélectionne ensuite.
+  if (deps.provider.assets) {
+    try {
+      const draftId = await createConnectionDraft(db, {
+        workspaceId: state.workspaceId,
+        userId: user.id,
+        platform: deps.provider.platform,
+        redirectSlug: slug,
+        userAccessToken: tokens.accessToken,
+        scopes: tokens.scopes,
+      });
+      return { slug, draftId, outcome: "select_assets" };
+    } catch (error) {
+      console.error(
+        `[oauth:${deps.provider.platform}] brouillon: ${error instanceof Error ? error.message : "erreur"}`,
+      );
+      return { slug, outcome: "exchange_failed" };
+    }
+  }
+
+  // Plateforme à identité unique : le compte est connu dès maintenant.
+  if (!deps.provider.fetchIdentity) {
+    console.error(`[oauth:${deps.provider.platform}] provider sans identité ni actifs`);
+    return { slug, outcome: "exchange_failed" };
+  }
+  let identity;
+  try {
     identity = await deps.provider.fetchIdentity(tokens.accessToken);
   } catch (error) {
     if (error instanceof SocialIdentityUnavailableError) {

@@ -283,7 +283,7 @@ describe("identité (graph.instagram.com/me)", () => {
       }),
     );
 
-    const identity = await instagramProvider.fetchIdentity("IGAA.long");
+    const identity = await instagramProvider.fetchIdentity!("IGAA.long");
     const url = new URL(String(fetchMock.mock.calls[0][0]));
     // Version d'API épinglée : un appel non versionné suivrait les bascules
     // de Meta sans prévenir.
@@ -302,7 +302,7 @@ describe("identité (graph.instagram.com/me)", () => {
       json({ data: [{ user_id: "42", username: "compte.minimal" }] }),
     );
 
-    const identity = await instagramProvider.fetchIdentity("IGAA.long");
+    const identity = await instagramProvider.fetchIdentity!("IGAA.long");
     expect(fetchMock).toHaveBeenCalledTimes(2);
     // Le 2e appel ne demande que le jeu strictement documenté.
     expect(new URL(String(fetchMock.mock.calls[1][0])).searchParams.get("fields")).toBe(
@@ -317,13 +317,13 @@ describe("identité (graph.instagram.com/me)", () => {
 
   it("user_id numérique converti en chaîne (clé d'unicité de social_accounts)", async () => {
     mockFetchSequence(json({ data: [{ user_id: 17841400000000000, username: "n" }] }));
-    const identity = await instagramProvider.fetchIdentity("IGAA.long");
+    const identity = await instagramProvider.fetchIdentity!("IGAA.long");
     expect(typeof identity.providerAccountId).toBe("string");
   });
 
   it("réponse sans user_id : rejetée plutôt que d'enregistrer un compte anonyme", async () => {
     mockFetchSequence(json({ data: [{ username: "sans-id" }] }));
-    await expect(instagramProvider.fetchIdentity("IGAA.long")).rejects.toThrow(
+    await expect(instagramProvider.fetchIdentity!("IGAA.long")).rejects.toThrow(
       "instagram me: user_id absent",
     );
   });

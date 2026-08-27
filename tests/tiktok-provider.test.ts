@@ -140,7 +140,7 @@ describe("identité (user/info)", () => {
         { status: 200 },
       ),
     );
-    const identity = await tiktokProvider.fetchIdentity("act.tk-123");
+    const identity = await tiktokProvider.fetchIdentity!("act.tk-123");
     const url = new URL(String(fetchMock.mock.calls[0][0]));
     expect(url.origin + url.pathname).toBe("https://open.tiktokapis.com/v2/user/info/");
     expect(url.searchParams.get("fields")).toBe("open_id,union_id,display_name,avatar_url_100");
@@ -158,7 +158,7 @@ describe("identité (user/info)", () => {
         { status: 200 },
       ),
     );
-    await expect(tiktokProvider.fetchIdentity("bad")).rejects.toThrow(
+    await expect(tiktokProvider.fetchIdentity!("bad")).rejects.toThrow(
       "tiktok user/info: access_token_invalid",
     );
   });

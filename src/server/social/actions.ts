@@ -12,6 +12,7 @@ import type { SocialPlatform } from "@/types/platform";
 import type { WorkspaceMembership } from "@/types/workspace";
 
 import { canConnectMore, PLATFORM_LABELS } from "./accounts";
+import { connectSelectedAssets, type AssetsFailureCode } from "./assets";
 import type { PublishActionState, SocialActionState } from "./action-state";
 import {
   publishToSocialAccount,
@@ -326,4 +327,74 @@ export async function resumePublicationAction(
     permalink: outcome.status === "published" ? outcome.permalink : null,
     publicationId: outcome.publicationId,
   };
+}
+
+
+// ---------------------------------------------------------------------------
+// Sélection d'actifs (Pages Facebook)
+// ---------------------------------------------------------------------------
+
+const ASSET_ERRORS: Record<AssetsFailureCode, string> = {
+  draft_not_found:
+    "Cette demande de connexion a expiré ou a déjà été utilisée. Relancez la connexion.",
+  provider_unavailable: "Cette plateforme n'est pas disponible actuellement.",
+  listing_failed:
+    "Impossible de récupérer vos Pages auprès de la plateforme. Réessayez.",
+  nothing_selected: "Sélectionnez au moins une Page.",
+  not_publishable:
+    "Vous ne pouvez pas publier sur l'une des Pages sélectionnées. Demandez la permission de création de contenu, puis réessayez.",
+  quota_exceeded:
+    "Le nombre de Pages sélectionnées dépasse la limite de comptes de votre plan.",
+  connect_failed: "La connexion des Pages a échoué. Réessayez.",
+};
+
+/**
+ * Connecte les Pages cochées par l'utilisateur. Le navigateur n'envoie que
+ * des identifiants d'actifs ; tout est revérifié côté serveur contre le
+ * brouillon, qui est lui-même lié au workspace ET à l'utilisateur.
+ */
+export async function connectAssetsAction(
+  _prev: SocialActionState,
+  formData: FormData,
+): Promise<SocialActionState> {
+  const auth = await requireSocialManager(formData);
+  if (!auth.ok) {
+    return { error: auth.error };
+  }
+
+  const draftId = String(formData.get("draftId") ?? "");
+  if (!UUID.test(draftId)) {
+    return { error: "Demande de connexion invalide." };
+  }
+  const assetIds = formData
+    .getAll("assetIds")
+    .map((value) => String(value))
+    .filter((value) => value.length > 0 && value.length <= 128);
+
+  const { supabase, user } = await requireUser();
+  const db = createServiceClient();
+
+  const result = await connectSelectedAssets(
+    {
+      db,
+      getProvider: (platform: string) => getProvider(platform as SocialPlatform),
+      getQuota: async (workspaceId: string) => {
+        const { access } = await getWorkspaceAccess(supabase, workspaceId);
+        return access.quotas.socialAccounts;
+      },
+    },
+    {
+      draftId,
+      workspaceId: auth.membership.workspace.id,
+      userId: user.id,
+      assetIds,
+    },
+  );
+
+  if (!result.ok) {
+    return { error: ASSET_ERRORS[result.code] };
+  }
+
+  revalidatePath(`/app/${auth.membership.workspace.slug}/accounts`);
+  redirect(`/app/${auth.membership.workspace.slug}/accounts?connected=facebook`);
 }

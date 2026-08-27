@@ -1,8 +1,8 @@
 # C8.4 — Meta (Instagram + Facebook) : vérification d'architecture
 
-**Statut : DÉCISION PRISE le 2026-08-26 — Option A (Instagram API with
-Instagram Login) validée. C8.4a (connexion) puis C8.4b (publication Reel et
-image) implémentées. Facebook fera l'objet d'une sous-étape distincte.**
+**Statut : Instagram livré et validé en production (C8.4a connexion,
+C8.4b publication). C8.4c Facebook implémenté, en attente des identifiants
+Meta pour l'E2E.**
 
 Ce document répond à la question posée avant toute implémentation : POSTYNC
 doit-il intégrer Meta via **Facebook Login for Business + Pages** ou via
@@ -231,3 +231,54 @@ Documentation `developers.facebook.com`, consultée le 2026-08-26 :
   `/docs/video-api/guides/publishing`
 - Niveaux d'accès Standard / Advanced et Business Verification :
   `/docs/graph-api/overview/access-levels`
+
+
+---
+
+## 7. C8.4c — Facebook (Pages)
+
+Vérifié le 2026-08-27 sur la documentation officielle. Facebook n'est pas
+« Instagram avec un autre logo » : c'est un modèle différent.
+
+### Ce qui change
+
+| | Instagram | Facebook |
+|---|---|---|
+| Une autorisation donne | 1 compte | **N Pages** |
+| Identité | `fetchIdentity` | **`assets` + sélection** |
+| Jeton conservé | jeton utilisateur (60 j) | **jeton de Page** (sans date d'expiration) |
+| Publication | 2 phases | **3 phases** |
+| Reel | 3 s à 15 min, ratio libre | **3 à 90 s, 9:16 obligatoire, ≥ 540×960** |
+| Quota plateforme | 100 / 24 h | 30 / 24 h |
+
+### Arbitrages retenus
+
+- **`scope` plutôt que `config_id`.** Meta recommande `config_id` (Login for
+  Business), mais `scope` reste documenté et accepté. On garde les permissions
+  DANS LE CODE, comme pour les trois autres providers, plutôt que dans un
+  objet du tableau de bord qu'un commit ne tracerait pas.
+- **Plusieurs Pages par connexion**, cases à cocher, une ligne
+  `social_accounts` par Page. Refaire l'OAuth pour chaque Page serait
+  pénible dès qu'un client en gère deux ou trois.
+- **Permissions minimales** : `pages_show_list`, `pages_read_engagement`,
+  `pages_manage_posts`. Vérifié : `publish_video` n'est **pas** requis pour
+  les Reels — il concerne la vidéo en direct.
+- **Filtrage sur `tasks`** : seules les Pages où l'utilisateur détient
+  `CREATE_CONTENT` sont proposées comme publiables.
+
+### Correction d'une affirmation antérieure
+
+Ce document indiquait qu'un jeton de Page « n'expire pas ». C'est inexact et
+dangereux à encoder tel quel. La formulation officielle est : **pas de date
+d'expiration, mais invalidation sous certaines conditions** — mot de passe
+changé, application retirée, rôle perdu sur la Page, événement de sécurité
+Meta. `token_expires_at` reste donc `null`, et l'invalidation ne se constate
+qu'à l'usage : il faudra basculer le compte en `revoked` quand un appel échoue
+en erreur d'authentification.
+
+### Prérequis Meta pour l'E2E
+
+Application Meta avec le produit **Facebook Login**, `META_CLIENT_ID` et
+`META_CLIENT_SECRET` renseignés, URI de redirection
+`/api/oauth/facebook/callback` enregistrée, et un compte testeur administrant
+une **Page de test** avec la tâche `CREATE_CONTENT`.

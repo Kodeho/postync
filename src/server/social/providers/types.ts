@@ -102,6 +102,29 @@ export interface SocialPublisher {
   }): Promise<{ used: number; limit: number } | null>;
 }
 
+/**
+ * Un actif publiable rattaché à une autorisation (une Page Facebook).
+ *
+ * `token` est le jeton PROPRE à l'actif : c'est lui qui sera conservé dans
+ * Vault, jamais le jeton utilisateur qui a servi à l'obtenir.
+ */
+export type SocialAsset = {
+  assetId: string;
+  name: string;
+  avatarUrl: string | null;
+  token: string;
+  /**
+   * L'utilisateur peut-il réellement publier sur cet actif ? Une Page qu'il
+   * ne fait qu'analyser ne doit pas être proposée à la connexion.
+   */
+  canPublish: boolean;
+};
+
+export interface SocialAssetSelector {
+  /** Actifs administrés par l'utilisateur, avec leur jeton dédié. */
+  listAssets(userAccessToken: string): Promise<SocialAsset[]>;
+}
+
 export interface SocialProvider {
   platform: SocialPlatform;
   /** PKCE S256 exigé/supporté par ce provider. */
@@ -116,7 +139,11 @@ export interface SocialProvider {
     codeVerifier: string | null;
     redirectUri: string;
   }): Promise<TokenSet>;
-  fetchIdentity(accessToken: string): Promise<SocialIdentity>;
+  /**
+   * Identité UNIQUE du compte autorisé (YouTube, TikTok, Instagram).
+   * Absent pour les providers à actifs multiples, qui exposent `assets`.
+   */
+  fetchIdentity?(accessToken: string): Promise<SocialIdentity>;
   /**
    * Rafraîchissement du jeton. L'argument est normalement le REFRESH TOKEN,
    * sauf pour les providers qui n'en délivrent pas de distinct et rafraîchissent
@@ -143,6 +170,12 @@ export interface SocialProvider {
    * implémentée ou pas encore autorisée à publier.
    */
   publisher?: SocialPublisher;
+  /**
+   * Sélection d'actifs. Présent quand UNE autorisation donne accès à
+   * PLUSIEURS comptes publiables (Pages Facebook). Le callback ne crée alors
+   * aucune ligne : il met la connexion en attente et l'utilisateur choisit.
+   */
+  assets?: SocialAssetSelector;
 }
 
 /**

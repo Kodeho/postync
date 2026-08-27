@@ -49,6 +49,15 @@ export async function GET(
     url.searchParams,
   );
 
+  // Plateforme à actifs multiples : rien n'est connecté, l'utilisateur doit
+  // encore choisir ses Pages. On l'envoie sur l'écran de sélection, qui ne
+  // reçoit qu'un identifiant de brouillon — aucun jeton dans l'URL.
+  if (result.outcome === "select_assets" && result.slug && result.draftId) {
+    const selection = new URL(`/app/${result.slug}/accounts/select`, origin);
+    selection.searchParams.set("draft", result.draftId);
+    return NextResponse.redirect(selection, 302);
+  }
+
   const destination = result.slug
     ? `/app/${result.slug}/accounts`
     : "/app";
