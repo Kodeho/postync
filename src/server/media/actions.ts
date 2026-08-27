@@ -8,6 +8,8 @@ import { getWorkspaceAccess } from "@/server/billing/queries";
 import { createServiceClient } from "@/server/supabase/service-client";
 import type { WorkspaceMembership } from "@/types/workspace";
 
+import type { MediaActionState, UploadTicketState } from "./action-state";
+
 import {
   deleteAsset,
   finalizeUpload,
@@ -74,13 +76,6 @@ async function mediaDeps(): Promise<MediaDeps> {
   };
 }
 
-export type UploadTicketState = {
-  error: string | null;
-  ticket: { assetId: string; uploadUrl: string } | null;
-};
-
-export const IDLE_UPLOAD_TICKET: UploadTicketState = { error: null, ticket: null };
-
 /**
  * Délivre une URL d'upload signée après contrôle du rôle, du format et du
  * quota. Le média est réservé en base mais reste non publiable tant que les
@@ -119,9 +114,6 @@ export async function requestUploadAction(
     ticket: { assetId: result.assetId, uploadUrl: result.uploadUrl },
   };
 }
-
-export type MediaActionState = { error: string | null; notice: string | null };
-export const IDLE_MEDIA_ACTION: MediaActionState = { error: null, notice: null };
 
 /**
  * Confirme un téléversement : le serveur vérifie que le fichier existe

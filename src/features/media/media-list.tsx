@@ -5,7 +5,8 @@ import { useActionState } from "react";
 import { Badge } from "@/components/admin/badges";
 import { FormAlert } from "@/components/ui/form-alert";
 import { SubmitButton } from "@/components/ui/submit-button";
-import { deleteMediaAction, IDLE_MEDIA_ACTION } from "@/server/media/actions";
+import { deleteMediaAction } from "@/server/media/actions";
+import { IDLE_MEDIA_ACTION } from "@/server/media/action-state";
 import type { PlatformCompatibility } from "@/server/media/rules";
 
 /**

@@ -4,12 +4,8 @@ import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { FormAlert } from "@/components/ui/form-alert";
-import {
-  finalizeUploadAction,
-  requestUploadAction,
-  IDLE_MEDIA_ACTION,
-  IDLE_UPLOAD_TICKET,
-} from "@/server/media/actions";
+import { finalizeUploadAction, requestUploadAction } from "@/server/media/actions";
+import { IDLE_MEDIA_ACTION, IDLE_UPLOAD_TICKET } from "@/server/media/action-state";
 import { ALLOWED_MIME_TYPES, MAX_BYTE_SIZE, formatBytes } from "@/server/media/rules";
 
 /**
