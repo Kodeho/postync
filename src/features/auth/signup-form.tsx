@@ -32,6 +32,23 @@ export function SignupForm() {
 
       <SignupFields values={state.values} />
 
+      {/*
+        L'acceptation est portee par l'acte de creation lui-meme, et annoncee
+        AVANT le bouton d'envoi : un utilisateur doit pouvoir lire ce qu'il
+        accepte avant de s'engager, pas le decouvrir apres coup.
+      */}
+      <p className="text-xs text-muted">
+        En créant un compte, vous acceptez les{" "}
+        <Link href="/terms" className="text-primary underline-offset-4 hover:underline">
+          conditions d&apos;utilisation
+        </Link>{" "}
+        et la{" "}
+        <Link href="/privacy" className="text-primary underline-offset-4 hover:underline">
+          politique de confidentialité
+        </Link>
+        .
+      </p>
+
       <SubmitButton label="Créer mon compte" pendingLabel="Création…" />
 
       <p className="text-sm text-muted">
