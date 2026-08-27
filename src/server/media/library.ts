@@ -172,7 +172,7 @@ export type FinalizeResult =
  * correspond à ce qui avait été annoncé.
  */
 export async function finalizeUpload(
-  deps: MediaDeps,
+  db: SupabaseClient,
   input: {
     workspaceId: string;
     assetId: string;
@@ -184,7 +184,7 @@ export async function finalizeUpload(
     probe?: MediaProbe | null;
   },
 ): Promise<FinalizeResult> {
-  const { data: asset } = await deps.db
+  const { data: asset } = await db
     .from("media_assets")
     .select("id, workspace_id, storage_path, kind, byte_size, status, mime_type")
     .eq("id", input.assetId)
@@ -206,12 +206,12 @@ export async function finalizeUpload(
   // « prête » sans fichier derrière casserait la publication plus tard.
   const folder = asset.storage_path.split("/")[0];
   const filename = asset.storage_path.slice(folder.length + 1);
-  const { data: listing } = await deps.db.storage
+  const { data: listing } = await db.storage
     .from(BUCKET)
     .list(folder, { search: filename, limit: 1 });
   const objet = (listing ?? []).find((item) => item.name === filename);
   if (!objet) {
-    await markInvalid(deps.db, asset.id, "fichier_absent");
+    await markInvalid(db, asset.id, "fichier_absent");
     return { ok: false, code: "storage_failed" };
   }
 
@@ -219,22 +219,22 @@ export async function finalizeUpload(
   // seuls les premiers octets sont lus, et elle n'est pas conservée.
   let probe = input.probe ?? null;
   if (probe === null) {
-    const { data: signed } = await deps.db.storage
+    const { data: signed } = await db.storage
       .from(BUCKET)
       .createSignedUrl(asset.storage_path, 120);
     if (!signed?.signedUrl) {
-      await markInvalid(deps.db, asset.id, "analyse_impossible");
+      await markInvalid(db, asset.id, "analyse_impossible");
       return { ok: false, code: "storage_failed" };
     }
     const mesure = await probeRemoteMedia(signed.signedUrl, asset.mime_type);
     if (typeof mesure === "string") {
-      await markInvalid(deps.db, asset.id, mesure);
+      await markInvalid(db, asset.id, mesure);
       return { ok: false, code: "invalid_media", message: probeFailureMessage(mesure) };
     }
     probe = mesure;
   }
 
-  const { data: updated, error } = await deps.db
+  const { data: updated, error } = await db
     .from("media_assets")
     .update({
       width: probe.width,
@@ -272,10 +272,10 @@ async function markInvalid(db: SupabaseClient, assetId: string, detail: string):
  * resterait servie depuis le cache après expiration du jeton.
  */
 export async function signMediaUrl(
-  deps: MediaDeps,
+  db: SupabaseClient,
   input: { workspaceId: string; assetId: string; ttlSeconds?: number },
 ): Promise<{ ok: true; url: string } | { ok: false; code: MediaFailureCode }> {
-  const { data: asset } = await deps.db
+  const { data: asset } = await db
     .from("media_assets")
     .select("storage_path, status")
     .eq("id", input.assetId)
@@ -288,7 +288,7 @@ export async function signMediaUrl(
     return { ok: false, code: "not_ready" };
   }
 
-  const { data, error } = await deps.db.storage
+  const { data, error } = await db.storage
     .from(BUCKET)
     .createSignedUrl(asset.storage_path, input.ttlSeconds ?? PUBLISH_URL_TTL_SECONDS);
   if (error || !data?.signedUrl) {
@@ -304,10 +304,10 @@ export async function signMediaUrl(
  * la suppression de l'objet est la seule révocation d'accès réelle.
  */
 export async function deleteAsset(
-  deps: MediaDeps,
+  db: SupabaseClient,
   input: { workspaceId: string; assetId: string },
 ): Promise<{ ok: true } | { ok: false; code: MediaFailureCode }> {
-  const { data: asset } = await deps.db
+  const { data: asset } = await db
     .from("media_assets")
     .select("id, storage_path")
     .eq("id", input.assetId)
@@ -317,13 +317,13 @@ export async function deleteAsset(
     return { ok: false, code: "asset_not_found" };
   }
 
-  const { error: removeError } = await deps.db.storage.from(BUCKET).remove([asset.storage_path]);
+  const { error: removeError } = await db.storage.from(BUCKET).remove([asset.storage_path]);
   if (removeError) {
     console.error(`[media:delete] remove: ${removeError.message}`);
     return { ok: false, code: "storage_failed" };
   }
 
-  const { error } = await deps.db.from("media_assets").delete().eq("id", asset.id);
+  const { error } = await db.from("media_assets").delete().eq("id", asset.id);
   if (error) {
     console.error(`[media:delete] row: ${error.code}`);
     return { ok: false, code: "storage_failed" };

@@ -178,7 +178,7 @@ describe.skipIf(!CONFIGURED)("C9 — médiathèque (bucket et base réels)", () 
     expect(avant!.status).toBe("uploading");
     expect(avant!.original_filename).toBe("ma video.mp4");
 
-    const finalise = await finalizeUpload(deps(), {
+    const finalise = await finalizeUpload(admin, {
       workspaceId,
       assetId: demande.assetId,
       probe: { width: 720, height: 1280, durationSeconds: 30, videoCodec: "avc1", fastStart: true },
@@ -189,7 +189,7 @@ describe.skipIf(!CONFIGURED)("C9 — médiathèque (bucket et base réels)", () 
     expect(finalise.asset.duration_seconds).toBe(30);
     expect(finalise.asset.width).toBe(720);
 
-    await deleteAsset(deps(), { workspaceId, assetId: demande.assetId });
+    await deleteAsset(admin, { workspaceId, assetId: demande.assetId });
   });
 
   it("fichier annoncé mais jamais déposé : refusé et marqué invalide", async () => {
@@ -203,7 +203,7 @@ describe.skipIf(!CONFIGURED)("C9 — médiathèque (bucket et base réels)", () 
     if (!demande.ok) throw new Error("demande refusée");
 
     // On ne téléverse rien : la ligne ne doit pas pouvoir passer « prête ».
-    const finalise = await finalizeUpload(deps(), {
+    const finalise = await finalizeUpload(admin, {
       workspaceId,
       assetId: demande.assetId,
       probe: { width: 720, height: 1280, durationSeconds: 10, videoCodec: "avc1", fastStart: true },
@@ -297,7 +297,7 @@ describe.skipIf(!CONFIGURED)("C9 — médiathèque (bucket et base réels)", () 
     });
     if (!demande.ok) throw new Error("demande refusée");
     await televerser(demande.uploadUrl, "video/mp4");
-    await finalizeUpload(deps(), {
+    await finalizeUpload(admin, {
       workspaceId,
       assetId: demande.assetId,
       probe: { width: 720, height: 1280, durationSeconds: 30, videoCodec: "avc1", fastStart: true },
@@ -305,10 +305,10 @@ describe.skipIf(!CONFIGURED)("C9 — médiathèque (bucket et base réels)", () 
 
     // Identifiant réel, mais workspace qui n'est pas le sien.
     expect(
-      await signMediaUrl(deps(), { workspaceId: otherWorkspaceId, assetId: demande.assetId }),
+      await signMediaUrl(admin, { workspaceId: otherWorkspaceId, assetId: demande.assetId }),
     ).toEqual({ ok: false, code: "asset_not_found" });
     expect(
-      await deleteAsset(deps(), { workspaceId: otherWorkspaceId, assetId: demande.assetId }),
+      await deleteAsset(admin, { workspaceId: otherWorkspaceId, assetId: demande.assetId }),
     ).toEqual({ ok: false, code: "asset_not_found" });
 
     // RLS : un tiers ne voit rien de la médiathèque.
@@ -331,7 +331,7 @@ describe.skipIf(!CONFIGURED)("C9 — médiathèque (bucket et base réels)", () 
       .eq("id", demande.assetId);
     expect(ecriture.error).not.toBeNull();
 
-    await deleteAsset(deps(), { workspaceId, assetId: demande.assetId });
+    await deleteAsset(admin, { workspaceId, assetId: demande.assetId });
   });
 
   // -------------------------------------------------------------------------
@@ -350,18 +350,18 @@ describe.skipIf(!CONFIGURED)("C9 — médiathèque (bucket et base réels)", () 
     await televerser(demande.uploadUrl, "video/mp4");
 
     // Un média pas encore confirmé n'est pas signable.
-    expect(await signMediaUrl(deps(), { workspaceId, assetId: demande.assetId })).toEqual({
+    expect(await signMediaUrl(admin, { workspaceId, assetId: demande.assetId })).toEqual({
       ok: false,
       code: "not_ready",
     });
 
-    await finalizeUpload(deps(), {
+    await finalizeUpload(admin, {
       workspaceId,
       assetId: demande.assetId,
       probe: { width: 720, height: 1280, durationSeconds: 30, videoCodec: "avc1", fastStart: true },
     });
 
-    const signe = await signMediaUrl(deps(), { workspaceId, assetId: demande.assetId });
+    const signe = await signMediaUrl(admin, { workspaceId, assetId: demande.assetId });
     expect(signe.ok).toBe(true);
     if (!signe.ok) return;
     expect(signe.url).toContain("/object/sign/media/");
@@ -381,7 +381,7 @@ describe.skipIf(!CONFIGURED)("C9 — médiathèque (bucket et base réels)", () 
     expect(JSON.stringify(ligne)).not.toContain("token=");
     expect(JSON.stringify(ligne)).not.toContain("/object/sign/");
 
-    await deleteAsset(deps(), { workspaceId, assetId: demande.assetId });
+    await deleteAsset(admin, { workspaceId, assetId: demande.assetId });
   });
 
   it("suppression : l'objet part du bucket, puis la ligne", async () => {
@@ -394,13 +394,13 @@ describe.skipIf(!CONFIGURED)("C9 — médiathèque (bucket et base réels)", () 
     });
     if (!demande.ok) throw new Error("demande refusée");
     await televerser(demande.uploadUrl, "video/mp4");
-    await finalizeUpload(deps(), {
+    await finalizeUpload(admin, {
       workspaceId,
       assetId: demande.assetId,
       probe: { width: 720, height: 1280, durationSeconds: 30, videoCodec: "avc1", fastStart: true },
     });
 
-    expect(await deleteAsset(deps(), { workspaceId, assetId: demande.assetId })).toEqual({
+    expect(await deleteAsset(admin, { workspaceId, assetId: demande.assetId })).toEqual({
       ok: true,
     });
 

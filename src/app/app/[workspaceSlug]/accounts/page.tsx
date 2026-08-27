@@ -11,7 +11,11 @@ import {
   DisconnectButton,
   ReconnectButton,
 } from "@/features/accounts/account-forms";
-import { PublishForm, ResumePublicationButton } from "@/features/accounts/publish-form";
+import {
+  PublishForm,
+  ResumePublicationButton,
+  type SelectableMedia,
+} from "@/features/accounts/publish-form";
 import { getWorkspaceContext } from "@/features/workspaces/context";
 import { createClient } from "@/lib/supabase/server";
 import { formatDate } from "@/server/admin/audit";
@@ -27,6 +31,12 @@ import {
   needsReconnect,
   type SocialAccountRow,
 } from "@/server/social/accounts";
+import { listReadyMediaAssets } from "@/server/media/queries";
+import {
+  checkMediaForPlatform,
+  formatBytes,
+  formatDuration,
+} from "@/server/media/rules";
 import { getProvider, isProviderAvailable } from "@/server/social/providers";
 import {
   countPublicationsThisMonth,
@@ -111,12 +121,42 @@ export default async function AccountsPage({
   const canManage = ctx.active.role === "owner" || ctx.active.role === "admin";
 
   const supabase = await createClient();
-  const [accounts, { access }, publications, publicationsUsed] = await Promise.all([
+  const [accounts, { access }, publications, publicationsUsed, mediaAssets] = await Promise.all([
     listSocialAccounts(supabase, workspace.id),
     getWorkspaceAccess(supabase, workspace.id),
     listRecentPublications(supabase, workspace.id),
     countPublicationsThisMonth(supabase, workspace.id),
+    listReadyMediaAssets(supabase, workspace.id),
   ]);
+
+  /**
+   * Médias proposés pour UNE plateforme, avec la raison quand ils ne
+   * conviennent pas. La compatibilité est calculée côté serveur : le
+   * navigateur ne reçoit qu'un verdict et une explication.
+   */
+  const mediaFor = (platform: SocialPlatform): SelectableMedia[] =>
+    mediaAssets.map((asset) => {
+      const kind = asset.kind === "image" ? "image" : "reel";
+      const violations = checkMediaForPlatform(
+        asset,
+        platform,
+        kind,
+        PLATFORM_LABELS[platform],
+      );
+      const details = [
+        formatBytes(Number(asset.byte_size)),
+        asset.width && asset.height ? `${asset.width} × ${asset.height}` : null,
+        asset.duration_seconds !== null
+          ? formatDuration(Number(asset.duration_seconds))
+          : null,
+      ].filter(Boolean);
+      return {
+        id: asset.id,
+        label: `${asset.original_filename} (${details.join(", ")})`,
+        compatible: violations.length === 0,
+        reasons: violations.map((v) => v.message),
+      };
+    });
   const publishQuota = access.quotas.publicationsPerMonth;
   const quotaLeft = canPublishMore(publicationsUsed, publishQuota);
 
@@ -244,6 +284,7 @@ export default async function AccountsPage({
                               accountId={account.id}
                               accountLabel={account.display_name ?? PLATFORM_LABELS[key]}
                               disabledReason={publishDisabledReason}
+                              media={mediaFor(key)}
                             />
                           ) : null}
                         </li>

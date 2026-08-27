@@ -8,6 +8,9 @@ import {
   type PublishMediaKind,
   type SocialProvider,
 } from "./providers/types";
+import { signMediaUrl } from "@/server/media/library";
+import { checkMediaForPlatform } from "@/server/media/rules";
+
 import { getUsableAccessToken } from "./token";
 
 /**
@@ -46,6 +49,8 @@ export type PublishOutcome =
 
 export type PublishFailureCode =
   | "invalid_media_url"
+  | "media_not_found"
+  | "media_incompatible"
   | "caption_too_long"
   | "unsupported_media"
   | "account_not_found"
@@ -64,10 +69,29 @@ export type PublishRequest = {
   socialAccountId: string;
   requestedBy: string;
   mediaKind: PublishMediaKind;
-  mediaUrl: string;
+  /**
+   * Média de la médiathèque. Quand il est fourni, l'URL remise à la
+   * plateforme est SIGNÉE ICI, au moment de publier, et n'est jamais
+   * conservée : la ligne ne garde que la clé de l'objet.
+   */
+  mediaAssetId?: string | null;
+  /**
+   * Chemin historique : URL publique saisie à la main. Conservé tant que la
+   * médiathèque ne l'a pas entièrement remplacé.
+   */
+  mediaUrl?: string;
   caption: string | null;
   coverUrl?: string | null;
   shareToFeed?: boolean;
+};
+
+/** D'où vient le média, une fois la source résolue. */
+type ResolvedMedia = {
+  /** URL que la plateforme ira chercher. Éphémère si elle est signée. */
+  remoteUrl: string;
+  /** Ce qui sera ENREGISTRÉ : clé de l'objet, ou URL manuelle. */
+  storedReference: string;
+  assetId: string | null;
 };
 
 export type PublishDeps = {
@@ -264,13 +288,15 @@ export async function publishToSocialAccount(
 ): Promise<PublishOutcome> {
   const { db } = deps;
 
-  if (!isPublishableMediaUrl(request.mediaUrl)) {
-    return { ok: false, code: "invalid_media_url", publicationId: null };
-  }
   if (request.caption && request.caption.length > CAPTION_MAX_LENGTH) {
     return { ok: false, code: "caption_too_long", publicationId: null };
   }
   if (request.coverUrl && !isPublishableMediaUrl(request.coverUrl)) {
+    return { ok: false, code: "invalid_media_url", publicationId: null };
+  }
+  // La source du média n'est résolue qu'ici : dans le cas médiathèque, cela
+  // évite de signer une URL pour une publication qui sera refusée ensuite.
+  if (!request.mediaAssetId && !isPublishableMediaUrl(request.mediaUrl ?? "")) {
     return { ok: false, code: "invalid_media_url", publicationId: null };
   }
 
@@ -325,6 +351,64 @@ export async function publishToSocialAccount(
     return { ok: false, code: "quota_exceeded", publicationId: null };
   }
 
+  // Source du média. Pour la médiathèque : vérification de compatibilité avec
+  // CETTE plateforme, puis signature — dans cet ordre, pour ne jamais forger
+  // d'URL au profit d'une publication vouée à être refusée.
+  let media: ResolvedMedia;
+  if (request.mediaAssetId) {
+    const { data: asset } = await db
+      .from("media_assets")
+      .select("id, storage_path, mime_type, kind, width, height, duration_seconds, status")
+      .eq("id", request.mediaAssetId)
+      .eq("workspace_id", request.workspaceId)
+      .maybeSingle<{
+        id: string;
+        storage_path: string;
+        mime_type: string;
+        kind: "video" | "image";
+        width: number | null;
+        height: number | null;
+        duration_seconds: number | null;
+        status: string;
+      }>();
+    if (!asset) {
+      return { ok: false, code: "media_not_found", publicationId: null };
+    }
+    if (asset.status !== "ready") {
+      return { ok: false, code: "media_not_found", publicationId: null };
+    }
+
+    const violations = checkMediaForPlatform(
+      asset,
+      account.platform as Parameters<typeof checkMediaForPlatform>[1],
+      request.mediaKind,
+      account.platform,
+    );
+    if (violations.length > 0) {
+      return { ok: false, code: "media_incompatible", publicationId: null };
+    }
+
+    const signed = await signMediaUrl(db, {
+      workspaceId: request.workspaceId,
+      assetId: asset.id,
+    });
+    if (!signed.ok) {
+      return { ok: false, code: "media_not_found", publicationId: null };
+    }
+    media = {
+      remoteUrl: signed.url,
+      // Ce qui est enregistré est la CLÉ, jamais l'URL signée.
+      storedReference: asset.storage_path,
+      assetId: asset.id,
+    };
+  } else {
+    media = {
+      remoteUrl: request.mediaUrl as string,
+      storedReference: request.mediaUrl as string,
+      assetId: null,
+    };
+  }
+
   // Le jeton est renouvelé si nécessaire AVANT la publication : un jeton qui
   // expire au milieu d'un transfert serait pire qu'un jeton déjà expiré.
   const token = await getUsableAccessToken({ db, now }, provider, account);
@@ -343,7 +427,8 @@ export async function publishToSocialAccount(
       platform: account.platform,
       provider_account_id: account.provider_account_id,
       media_kind: request.mediaKind,
-      media_url: request.mediaUrl,
+      media_url: media.storedReference,
+      media_asset_id: media.assetId,
       caption: request.caption,
       requested_by: request.requestedBy,
       status: "pending",
@@ -361,7 +446,7 @@ export async function publishToSocialAccount(
       accessToken,
       providerAccountId: account.provider_account_id,
       mediaKind: request.mediaKind,
-      mediaUrl: request.mediaUrl,
+      mediaUrl: media.remoteUrl,
       caption: request.caption,
       coverUrl: request.coverUrl ?? null,
       shareToFeed: request.shareToFeed,

@@ -8,6 +8,14 @@ import { TextField } from "@/components/ui/text-field";
 import { publishAction, resumePublicationAction } from "@/server/social/actions";
 import { IDLE_PUBLISH_ACTION } from "@/server/social/action-state";
 
+/** Média proposé au choix, avec sa compatibilité pour CE réseau. */
+export type SelectableMedia = {
+  id: string;
+  label: string;
+  compatible: boolean;
+  reasons: string[];
+};
+
 /**
  * Formulaire de publication d'un compte social connecté.
  *
@@ -43,6 +51,7 @@ export function PublishForm({
   accountId,
   accountLabel,
   disabledReason,
+  media,
 }: {
   workspaceSlug: string;
   platform: string;
@@ -50,11 +59,20 @@ export function PublishForm({
   accountLabel: string;
   /** Non nul : la publication est impossible et la raison est affichée. */
   disabledReason: string | null;
+  /** Médias prêts de la bibliothèque, avec leur compatibilité. */
+  media: SelectableMedia[];
 }) {
   const [state, action] = useActionState(publishAction, IDLE_PUBLISH_ACTION);
   const [resumeState, resumeAction] = useActionState(resumePublicationAction, IDLE_PUBLISH_ACTION);
   const [mediaKind, setMediaKind] = useState<"reel" | "image">("reel");
   const [open, setOpen] = useState(false);
+  // La bibliothèque est la voie normale ; l'URL externe reste disponible tant
+  // que la transition n'est pas terminée.
+  const [source, setSource] = useState<"library" | "url">(media.length > 0 ? "library" : "url");
+  const [assetId, setAssetId] = useState<string>(
+    media.find((m) => m.compatible)?.id ?? "",
+  );
+  const choisi = media.find((m) => m.id === assetId) ?? null;
 
   // La reprise, quand elle a eu lieu, décrit l'état le plus récent.
   const current = resumeState.status || resumeState.error ? resumeState : state;
@@ -99,14 +117,70 @@ export function PublishForm({
           </div>
         </fieldset>
 
-        <TextField
-          label="URL publique du média"
-          name="mediaUrl"
-          type="url"
-          required
-          placeholder="https://exemple.com/video.mp4"
-          hint={(MEDIA_HINTS[platform] ?? MEDIA_HINTS.instagram)[mediaKind]}
-        />
+        {media.length > 0 ? (
+          <fieldset className="flex flex-col gap-1.5 text-sm">
+            <legend className="font-medium text-foreground">Source du média</legend>
+            <div className="flex gap-4">
+              <label className="flex items-center gap-2 text-sm text-foreground">
+                <input
+                  type="radio"
+                  name="mediaSource"
+                  value="library"
+                  checked={source === "library"}
+                  onChange={() => setSource("library")}
+                />
+                Médiathèque
+              </label>
+              <label className="flex items-center gap-2 text-sm text-foreground">
+                <input
+                  type="radio"
+                  name="mediaSource"
+                  value="url"
+                  checked={source === "url"}
+                  onChange={() => setSource("url")}
+                />
+                URL externe
+              </label>
+            </div>
+          </fieldset>
+        ) : null}
+
+        {source === "library" && media.length > 0 ? (
+          <label className="flex flex-col gap-1.5 text-sm">
+            <span className="font-medium text-foreground">Média</span>
+            <select
+              name="mediaAssetId"
+              value={assetId}
+              onChange={(event) => setAssetId(event.target.value)}
+              className="rounded-md border border-border bg-surface px-3 py-2 text-foreground shadow-soft focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring/60"
+            >
+              <option value="">Choisir un média…</option>
+              {media.map((item) => (
+                <option key={item.id} value={item.id} disabled={!item.compatible}>
+                  {item.label}
+                  {item.compatible ? "" : " — non compatible"}
+                </option>
+              ))}
+            </select>
+            {choisi && !choisi.compatible ? (
+              // Expliquer plutôt que d'échouer après coup.
+              <span className="text-xs text-danger">{choisi.reasons.join(" ")}</span>
+            ) : (
+              <span className="text-xs text-muted">
+                Importez vos médias depuis la Médiathèque pour les retrouver ici.
+              </span>
+            )}
+          </label>
+        ) : (
+          <TextField
+            label="URL publique du média"
+            name="mediaUrl"
+            type="url"
+            required
+            placeholder="https://exemple.com/video.mp4"
+            hint={(MEDIA_HINTS[platform] ?? MEDIA_HINTS.instagram)[mediaKind]}
+          />
+        )}
 
         <label className="flex flex-col gap-1.5 text-sm">
           <span className="font-medium text-foreground">Légende</span>
@@ -127,7 +201,18 @@ export function PublishForm({
         ) : null}
 
         <div className="flex items-center gap-3">
-          <SubmitButton label="Publier" pendingLabel="Publication…" />
+          {source === "library" && (!choisi || !choisi.compatible) ? (
+            <button
+              type="button"
+              disabled
+              title={choisi ? choisi.reasons.join(" ") : "Choisissez un média compatible"}
+              className="inline-flex h-10 cursor-not-allowed items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground opacity-60"
+            >
+              Publier
+            </button>
+          ) : (
+            <SubmitButton label="Publier" pendingLabel="Publication…" />
+          )}
           <button
             type="button"
             onClick={() => setOpen(false)}

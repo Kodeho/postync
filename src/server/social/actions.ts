@@ -205,6 +205,10 @@ const PUBLISH_ERRORS: Record<PublishFailureCode, string> = {
   invalid_media_url:
     "L'URL du média doit être une adresse https publique, directement accessible par la plateforme.",
   caption_too_long: "La légende dépasse 2200 caractères.",
+  media_not_found:
+    "Ce média est introuvable ou n'est pas encore prêt. Réimportez-le depuis la médiathèque.",
+  media_incompatible:
+    "Ce média n'est pas compatible avec ce réseau. La médiathèque en indique la raison.",
   unsupported_media: "Ce type de média n'est pas encore pris en charge pour cette plateforme.",
   account_not_found: "Compte introuvable.",
   publishing_unavailable: "La publication n'est pas encore disponible pour cette plateforme.",
@@ -267,6 +271,11 @@ export async function publishAction(
     socialAccountId: accountId,
     requestedBy: user.id,
     mediaKind: mediaKindRaw,
+    // Deux sources possibles le temps de la transition : un média de la
+    // bibliothèque, ou l'URL manuelle historique.
+    mediaAssetId: UUID.test(String(formData.get("mediaAssetId") ?? ""))
+      ? String(formData.get("mediaAssetId"))
+      : null,
     mediaUrl: String(formData.get("mediaUrl") ?? "").trim(),
     caption: caption.length > 0 ? caption : null,
     shareToFeed: formData.get("shareToFeed") === "on",

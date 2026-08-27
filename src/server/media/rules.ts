@@ -255,3 +255,62 @@ export function formatBytes(bytes: number): string {
 export function canStoreMore(currentBytes: number, addedBytes: number, quotaGb: number): boolean {
   return currentBytes + addedBytes <= quotaGb * 1024 * 1024 * 1024;
 }
+
+// ---------------------------------------------------------------------------
+// Compatibilité multi-réseaux
+// ---------------------------------------------------------------------------
+
+export type PlatformCompatibility = {
+  platform: SocialPlatform;
+  label: string;
+  /** Le média peut-il partir sur ce réseau ? */
+  compatible: boolean;
+  /** Type de publication retenu quand c'est compatible. */
+  mediaKind: "reel" | "image" | null;
+  /** Pourquoi ce n'est pas compatible — une phrase par raison. */
+  reasons: string[];
+};
+
+/**
+ * Rapport de compatibilité d'un média avec chaque réseau.
+ *
+ * L'intérêt est d'expliquer AVANT de publier plutôt que d'échouer après :
+ * une vidéo 16:9 partira sur Instagram et sera refusée par Facebook, et
+ * l'utilisateur doit le savoir au moment de choisir son média, pas au retour
+ * d'une erreur de la plateforme.
+ */
+export function compatibilityReport(
+  asset: Pick<MediaAsset, "mime_type" | "kind" | "width" | "height" | "duration_seconds" | "status">,
+  platforms: readonly { platform: SocialPlatform; label: string; publishingAvailable: boolean }[],
+): PlatformCompatibility[] {
+  return platforms.map(({ platform, label, publishingAvailable }) => {
+    if (!publishingAvailable) {
+      return {
+        platform,
+        label,
+        compatible: false,
+        mediaKind: null,
+        reasons: [`La publication ${label} n'est pas encore disponible dans POSTYNC.`],
+      };
+    }
+    if (asset.status !== "ready") {
+      return {
+        platform,
+        label,
+        compatible: false,
+        mediaKind: null,
+        reasons: ["Ce média n'est pas encore prêt."],
+      };
+    }
+
+    const mediaKind = asset.kind === "image" ? "image" : "reel";
+    const violations = checkMediaForPlatform(asset, platform, mediaKind, label);
+    return {
+      platform,
+      label,
+      compatible: violations.length === 0,
+      mediaKind: violations.length === 0 ? mediaKind : null,
+      reasons: violations.map((v) => v.message),
+    };
+  });
+}
