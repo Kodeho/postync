@@ -33,6 +33,75 @@ export type SocialIdentity = {
   avatarUrl: string | null;
 };
 
+/**
+ * Publication — types communs.
+ *
+ * Séparation volontaire : le provider n'expose que des APPELS distants
+ * (créer un conteneur, lire son statut, publier). Toute l'ORCHESTRATION
+ * (autorisation, quota, attente, persistance, reprise) vit dans
+ * `src/server/social/publish.ts`. Un provider ne connaît ni la base, ni les
+ * workspaces, ni les plans.
+ */
+
+export type PublishMediaKind = "reel" | "image";
+
+export type CreateContainerInput = {
+  accessToken: string;
+  providerAccountId: string;
+  mediaKind: PublishMediaKind;
+  /** URL PUBLIQUE du média : Instagram ne prend pas d'upload direct. */
+  mediaUrl: string;
+  caption: string | null;
+  /** Image de couverture d'un Reel (optionnelle). */
+  coverUrl?: string | null;
+  /** Reel également visible dans le fil, quand la plateforme le permet. */
+  shareToFeed?: boolean;
+};
+
+/**
+ * Statut d'un conteneur distant, normalisé.
+ * `ready` : publiable · `processing` : encore en traitement ·
+ * `failed` : traitement échoué · `expired` : conteneur périmé ·
+ * `published` : déjà publié.
+ */
+export type ContainerStatus = "ready" | "processing" | "failed" | "expired" | "published";
+
+/**
+ * Échec de publication portant un code court et stable, destiné à être
+ * enregistré en base et présenté à l'utilisateur. Ne doit JAMAIS transporter
+ * de token ni de payload brut de la plateforme.
+ */
+export class SocialPublishError extends Error {
+  constructor(
+    readonly code: string,
+    message?: string,
+  ) {
+    super(message ?? code);
+    this.name = "SocialPublishError";
+  }
+}
+
+export interface SocialPublisher {
+  /** Scopes supplémentaires exigés pour publier (contrôlés avant tout appel). */
+  requiredScopes: string[];
+  /** Types de médias réellement supportés par cette implémentation. */
+  supportedMediaKinds: readonly PublishMediaKind[];
+  createContainer(input: CreateContainerInput): Promise<string>;
+  containerStatus(input: { accessToken: string; containerId: string }): Promise<ContainerStatus>;
+  publishContainer(input: {
+    accessToken: string;
+    providerAccountId: string;
+    containerId: string;
+  }): Promise<{ providerMediaId: string }>;
+  /** Lien public du média publié — best effort, jamais bloquant. */
+  fetchPermalink?(input: { accessToken: string; providerMediaId: string }): Promise<string | null>;
+  /** Quota de publication imposé par la PLATEFORME (distinct du plan POSTYNC). */
+  remoteQuota?(input: {
+    accessToken: string;
+    providerAccountId: string;
+  }): Promise<{ used: number; limit: number } | null>;
+}
+
 export interface SocialProvider {
   platform: SocialPlatform;
   /** PKCE S256 exigé/supporté par ce provider. */
@@ -69,6 +138,11 @@ export interface SocialProvider {
    * l'autorisation lui-même. Ne pas laisser croire que l'accès est révoqué.
    */
   revokeNotice?: string;
+  /**
+   * Capacité de publication. Absente tant que la plateforme n'est pas
+   * implémentée ou pas encore autorisée à publier.
+   */
+  publisher?: SocialPublisher;
 }
 
 /**

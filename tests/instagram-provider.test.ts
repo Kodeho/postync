@@ -88,7 +88,11 @@ describe("URL d'autorisation (Business Login officiel)", () => {
     expect(url.searchParams.get("redirect_uri")).toBe(REDIRECT);
     expect(url.searchParams.get("state")).toBe("state-opaque");
     // Séparateur VIRGULE, comme la documentation Business Login.
-    expect(url.searchParams.get("scope")).toBe("instagram_business_basic");
+    // Identité + publication demandées en une fois : un compte connecté ne
+    // doit pas repasser par le consentement au moment de publier.
+    expect(url.searchParams.get("scope")).toBe(
+      "instagram_business_basic,instagram_business_content_publish",
+    );
     // Aucun PKCE documenté pour ce flux : le state à usage unique couvre le CSRF.
     expect(instagramProvider.usesPkce).toBe(false);
     expect(url.searchParams.get("code_challenge")).toBeNull();
@@ -96,9 +100,14 @@ describe("URL d'autorisation (Business Login officiel)", () => {
     expect(url.toString()).not.toContain("test-ig-app-secret");
   });
 
-  it("aucun scope de publication en C8.4a", () => {
-    expect(INSTAGRAM_SCOPES).toEqual(["instagram_business_basic"]);
-    expect(INSTAGRAM_SCOPES).not.toContain("instagram_business_content_publish");
+  it("scopes limités à l'identité et à la publication — rien de plus", () => {
+    expect(INSTAGRAM_SCOPES).toEqual([
+      "instagram_business_basic",
+      "instagram_business_content_publish",
+    ]);
+    // Moindre privilège : ni messagerie, ni commentaires.
+    expect(INSTAGRAM_SCOPES).not.toContain("instagram_business_manage_messages");
+    expect(INSTAGRAM_SCOPES).not.toContain("instagram_business_manage_comments");
   });
 });
 
@@ -237,7 +246,9 @@ describe("identité (graph.instagram.com/me)", () => {
 
     const identity = await instagramProvider.fetchIdentity("IGAA.long");
     const url = new URL(String(fetchMock.mock.calls[0][0]));
-    expect(url.origin + url.pathname).toBe("https://graph.instagram.com/me");
+    // Version d'API épinglée : un appel non versionné suivrait les bascules
+    // de Meta sans prévenir.
+    expect(url.origin + url.pathname).toBe("https://graph.instagram.com/v25.0/me");
     expect(url.searchParams.get("fields")).toContain("user_id");
     expect(identity).toEqual({
       providerAccountId: "17841400000000000",

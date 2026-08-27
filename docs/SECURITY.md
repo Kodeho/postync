@@ -137,6 +137,28 @@ autorité est celle de la page.
 - Le quota `socialAccounts` du plan (C7, Full Access compris) est appliqué à
   la connexion, côté serveur.
 
+## Publication (C8.4b)
+
+- **Ordre des contrôles**, tous obligatoires et tous côté serveur : URL de
+  média https publique (les URL portant des identifiants sont refusées, rien
+  n'est transmis à un tiers) → le compte appartient BIEN au workspace demandé
+  (filtre sur les deux colonnes : un identifiant volé ne suffit pas) → compte
+  actif → scope de publication RÉELLEMENT accordé → quota
+  `publicationsPerMonth` du plan. Le token n'est lu dans Vault **qu'après**
+  tous ces contrôles : un appel refusé n'y touche jamais.
+- **Rôles** : publier et reprendre = owner + admin, comme connecter.
+- **Journalisation** : uniquement des codes courts (`http_400`,
+  `container_failed`…). Jamais de token, jamais de réponse brute de la
+  plateforme — les messages Meta peuvent contenir des identifiants de compte.
+- **Aucun secret dans `social_publications`** ; la table n'accepte aucune
+  écriture depuis `authenticated`.
+- **Pas de double publication** : si la plateforme signale un conteneur déjà
+  publié, POSTYNC ne republie pas. Il enregistre la publication en indiquant
+  dans `status_detail` que la référence conservée est celle du conteneur et
+  non celle du média — plutôt que de présenter un identifiant pour un autre.
+- Le quota de la PLATEFORME (Instagram : 100 publications / 24 h) est distinct
+  du quota du plan POSTYNC ; les deux existent.
+
 ## Rôles
 
 `platform_role` (`user`, `support`, `admin`, `super_admin`) servira à

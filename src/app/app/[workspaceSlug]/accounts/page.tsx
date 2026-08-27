@@ -11,19 +11,28 @@ import {
   DisconnectButton,
   ReconnectButton,
 } from "@/features/accounts/account-forms";
+import { PublishForm, ResumePublicationButton } from "@/features/accounts/publish-form";
 import { getWorkspaceContext } from "@/features/workspaces/context";
 import { createClient } from "@/lib/supabase/server";
 import { formatDate } from "@/server/admin/audit";
 import { getWorkspaceAccess } from "@/server/billing/queries";
 import {
+  MEDIA_KIND_LABELS,
   PLATFORM_LABELS,
+  PUBLICATION_STATUS_LABELS,
   SOCIAL_STATUS_LABELS,
+  canPublishMore,
+  canResume,
   effectiveStatus,
   needsReconnect,
   type SocialAccountRow,
 } from "@/server/social/accounts";
 import { getProvider, isProviderAvailable } from "@/server/social/providers";
-import { listSocialAccounts } from "@/server/social/queries";
+import {
+  countPublicationsThisMonth,
+  listRecentPublications,
+  listSocialAccounts,
+} from "@/server/social/queries";
 import type { SocialPlatform } from "@/types/platform";
 
 export const metadata: Metadata = {
@@ -89,10 +98,14 @@ export default async function AccountsPage({
   const canManage = ctx.active.role === "owner" || ctx.active.role === "admin";
 
   const supabase = await createClient();
-  const [accounts, { access }] = await Promise.all([
+  const [accounts, { access }, publications, publicationsUsed] = await Promise.all([
     listSocialAccounts(supabase, workspace.id),
     getWorkspaceAccess(supabase, workspace.id),
+    listRecentPublications(supabase, workspace.id),
+    countPublicationsThisMonth(supabase, workspace.id),
   ]);
+  const publishQuota = access.quotas.publicationsPerMonth;
+  const quotaLeft = canPublishMore(publicationsUsed, publishQuota);
 
   const flashKey =
     typeof query.connected === "string" ? "connected" : typeof query.error === "string" ? query.error : null;
@@ -127,6 +140,7 @@ export default async function AccountsPage({
         {PLATFORMS.map(({ key, abbr }) => {
           const list = byPlatform.get(key) ?? [];
           const available = isProviderAvailable(key);
+          const publisher = getProvider(key)?.publisher ?? null;
           return (
             <li key={key}>
               <Panel className="flex h-full flex-col gap-4 p-5">
@@ -159,8 +173,23 @@ export default async function AccountsPage({
                   <ul className="flex flex-col divide-y divide-border border-t border-border">
                     {list.map((account) => {
                       const status = effectiveStatus(account);
+                      // La publication n'est proposée que si TOUT est réuni :
+                      // provider capable, compte actif, scopes réellement
+                      // accordés et quota du plan disponible.
+                      const publishDisabledReason = !publisher
+                        ? null
+                        : status !== "active"
+                          ? "Reconnectez ce compte pour pouvoir publier."
+                          : !publisher.requiredScopes.every((scope) =>
+                                (account.scopes ?? []).includes(scope),
+                              )
+                            ? "Ce compte a été connecté avant l'activation de la publication. Reconnectez-le."
+                            : !quotaLeft
+                              ? `Limite de ${publishQuota} publication(s) par mois atteinte pour ce plan.`
+                              : null;
                       return (
-                        <li key={account.id} className="flex items-center gap-3 py-3">
+                        <li key={account.id} className="flex flex-col gap-3 py-3">
+                          <div className="flex items-center gap-3">
                           <Avatar
                             label={account.display_name ?? account.provider_account_id}
                             seed={account.id}
@@ -194,6 +223,15 @@ export default async function AccountsPage({
                               />
                             </div>
                           ) : null}
+                          </div>
+                          {canManage && publisher ? (
+                            <PublishForm
+                              workspaceSlug={workspace.slug}
+                              accountId={account.id}
+                              accountLabel={account.display_name ?? PLATFORM_LABELS[key]}
+                              disabledReason={publishDisabledReason}
+                            />
+                          ) : null}
                         </li>
                       );
                     })}
@@ -204,6 +242,63 @@ export default async function AccountsPage({
           );
         })}
       </ul>
+
+      {publications.length > 0 ? (
+        <Panel className="flex flex-col gap-4 p-5">
+          <div>
+            <h2 className="text-sm font-semibold text-foreground">Publications récentes</h2>
+            <p className="text-xs text-muted">
+              {publicationsUsed}/{publishQuota} publication(s) ce mois-ci.
+            </p>
+          </div>
+          <ul className="flex flex-col divide-y divide-border border-t border-border">
+            {publications.map((publication) => (
+              <li key={publication.id} className="flex items-center gap-3 py-3">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-foreground">
+                    {PLATFORM_LABELS[publication.platform]} ·{" "}
+                    {MEDIA_KIND_LABELS[publication.media_kind]}
+                    {publication.caption ? ` — ${publication.caption}` : ""}
+                  </p>
+                  <p className="text-xs text-muted">
+                    {formatDate(publication.created_at)}
+                    {publication.permalink ? (
+                      <>
+                        {" · "}
+                        <a
+                          href={publication.permalink}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          className="underline underline-offset-2"
+                        >
+                          Voir
+                        </a>
+                      </>
+                    ) : null}
+                  </p>
+                </div>
+                <Badge
+                  tone={
+                    publication.status === "published"
+                      ? "success"
+                      : publication.status === "pending"
+                        ? "warning"
+                        : "danger"
+                  }
+                >
+                  {PUBLICATION_STATUS_LABELS[publication.status]}
+                </Badge>
+                {canManage && canResume(publication) ? (
+                  <ResumePublicationButton
+                    workspaceSlug={workspace.slug}
+                    publicationId={publication.id}
+                  />
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </Panel>
+      ) : null}
 
       {!canManage ? (
         <p className="text-sm text-muted">

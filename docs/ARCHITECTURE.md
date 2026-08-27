@@ -172,6 +172,17 @@ son flux Pages distinct, fera l'objet de sa propre sous-étape. Chaque provider
 est ajouté après vérification de sa documentation officielle. UI :
 `/app/[workspaceSlug]/accounts` + `src/features/accounts/account-forms.tsx`.
 
+### Publication (C8.4b)
+
+`src/server/social/publish.ts` orchestre la publication : contrôles
+d'autorisation, quota du plan, lecture Vault, attente bornée du conteneur
+distant, persistance dans `social_publications` et reprise. Les providers
+n'exposent que des appels distants via l'interface `SocialPublisher`
+(`createContainer`, `containerStatus`, `publishContainer`, `fetchPermalink`) :
+c'est ce découpage qui permettra d'ajouter TikTok et YouTube sans toucher à
+l'orchestration. UI : `src/features/accounts/publish-form.tsx`.
+Détail du fonctionnement dans `docs/PUBLISHING_ENGINE.md`.
+
 ### Code
 
 - `src/features/workspaces/actions.ts` — Server Action `createWorkspaceAction`

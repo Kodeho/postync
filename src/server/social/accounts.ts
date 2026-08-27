@@ -72,3 +72,53 @@ export function needsReconnect(status: SocialAccountStatus): boolean {
 export function canConnectMore(currentCount: number, quota: number): boolean {
   return currentCount < quota;
 }
+
+// ---------------------------------------------------------------------------
+// Publications
+// ---------------------------------------------------------------------------
+
+export type SocialPublicationStatus = "pending" | "published" | "failed";
+
+export type SocialPublicationRow = {
+  id: string;
+  workspace_id: string;
+  social_account_id: string | null;
+  platform: SocialPlatform;
+  provider_account_id: string;
+  media_kind: "reel" | "image";
+  media_url: string;
+  caption: string | null;
+  container_id: string | null;
+  provider_media_id: string | null;
+  permalink: string | null;
+  status: SocialPublicationStatus;
+  status_detail: string | null;
+  created_at: string;
+  published_at: string | null;
+};
+
+export const PUBLICATION_STATUS_LABELS: Record<SocialPublicationStatus, string> = {
+  pending: "En cours",
+  published: "Publié",
+  failed: "Échec",
+};
+
+export const MEDIA_KIND_LABELS: Record<"reel" | "image", string> = {
+  reel: "Reel",
+  image: "Image",
+};
+
+/** Une publication en cours reste reprenable tant qu'elle a un conteneur. */
+export function canResume(
+  publication: Pick<SocialPublicationRow, "status" | "container_id">,
+): boolean {
+  return publication.status === "pending" && Boolean(publication.container_id);
+}
+
+/**
+ * Peut-on publier ce mois-ci ? Quota `publicationsPerMonth` du plan (C7),
+ * publications abouties et en cours confondues.
+ */
+export function canPublishMore(currentCount: number, quota: number): boolean {
+  return currentCount < quota;
+}

@@ -1,8 +1,8 @@
 # C8.4 — Meta (Instagram + Facebook) : vérification d'architecture
 
 **Statut : DÉCISION PRISE le 2026-08-26 — Option A (Instagram API with
-Instagram Login) validée. Implémentée en C8.4a (connexion uniquement, aucune
-publication). Facebook fera l'objet d'une sous-étape distincte.**
+Instagram Login) validée. C8.4a (connexion) puis C8.4b (publication Reel et
+image) implémentées. Facebook fera l'objet d'une sous-étape distincte.**
 
 Ce document répond à la question posée avant toute implémentation : POSTYNC
 doit-il intégrer Meta via **Facebook Login for Business + Pages** ou via
@@ -170,8 +170,35 @@ Trois points contre-intuitifs, encodés et testés plutôt que supposés :
    **aucun refresh token distinct** — le jeton longue durée se rafraîchit
    lui-même, et passé 60 jours sans rafraîchissement il faut reconnecter.
 
-Hors périmètre de C8.4a, volontairement : toute publication (Reels compris),
-le scope `instagram_business_content_publish`, et Facebook.
+### C8.4b — publication
+
+Ajoutée le 2026-08-27, sur décision explicite d'élargir le périmètre à la
+publication. Le scope `instagram_business_content_publish` est désormais
+demandé **en même temps** que l'identité : un compte connecté ne doit pas
+repasser par le consentement au moment de publier. Un compte connecté AVANT
+ce changement ne l'a pas — `publish.ts` vérifie les scopes réellement
+accordés et demande une reconnexion plutôt que de tenter un appel voué à
+l'échec.
+
+| Élément | Valeur, vérifiée sur la doc officielle |
+|---|---|
+| Hôte | `graph.instagram.com` (et non `graph.facebook.com`, qui vaut pour l'option B) |
+| Conteneur | `POST /<IG_ID>/media` — `media_type=REELS` + `video_url`, ou `image_url` |
+| Statut | `GET /<CONTAINER_ID>?fields=status_code` |
+| Publication | `POST /<IG_ID>/media_publish` avec `creation_id` |
+| Quota plateforme | `GET /<IG_ID>/content_publishing_limit` — 100 / 24 h |
+| Durée de vie du conteneur | 24 h |
+
+Deux conséquences structurantes, déjà encodées :
+
+1. **Le média doit être servi depuis une URL publique** — cette API ne prend
+   aucun upload direct. C'est la contrainte qui dictera le stockage média.
+2. **La publication est asynchrone** : un Reel est transcodé avant d'être
+   publiable. POSTYNC attend dans un budget borné puis laisse la publication
+   reprenable, et la reprise ne réenvoie jamais le média.
+
+Hors périmètre, volontairement : Stories, carrousels, planification, stockage
+de médias, et Facebook.
 
 Prérequis restants côté Meta avant validation E2E : une application Meta créée
 sur `developers.facebook.com` avec le produit Instagram, un compte Instagram

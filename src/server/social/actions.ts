@@ -12,7 +12,13 @@ import type { SocialPlatform } from "@/types/platform";
 import type { WorkspaceMembership } from "@/types/workspace";
 
 import { canConnectMore, PLATFORM_LABELS } from "./accounts";
-import type { SocialActionState } from "./action-state";
+import type { PublishActionState, SocialActionState } from "./action-state";
+import {
+  publishToSocialAccount,
+  resumePublication,
+  type PublishFailureCode,
+} from "./publish";
+import type { PublishMediaKind } from "./providers/types";
 import { createOAuthState } from "./oauth-state";
 import { getProvider } from "./providers";
 import { vaultRead } from "./vault";
@@ -183,4 +189,141 @@ export async function disconnectAction(
     );
   }
   return { error: null };
+}
+
+
+// ---------------------------------------------------------------------------
+// Publication
+// ---------------------------------------------------------------------------
+
+/**
+ * Messages d'échec. Les codes viennent de `publish.ts` et ne contiennent
+ * jamais de token ni de réponse brute de la plateforme.
+ */
+const PUBLISH_ERRORS: Record<PublishFailureCode, string> = {
+  invalid_media_url:
+    "L'URL du média doit être une adresse https publique, directement accessible par la plateforme.",
+  caption_too_long: "La légende dépasse 2200 caractères.",
+  unsupported_media: "Ce type de média n'est pas encore pris en charge pour cette plateforme.",
+  account_not_found: "Compte introuvable.",
+  publishing_unavailable: "La publication n'est pas encore disponible pour cette plateforme.",
+  missing_scope:
+    "Ce compte a été connecté avant l'activation de la publication. Reconnectez-le pour autoriser la publication.",
+  account_inactive: "Ce compte doit être reconnecté avant de publier.",
+  quota_exceeded:
+    "Limite de publications du plan atteinte pour ce mois-ci. Passez à un plan supérieur.",
+  token_unavailable: "L'autorisation de ce compte est indisponible. Reconnectez-le.",
+  container_failed: "La plateforme a rejeté le média. Vérifiez son format et sa durée.",
+  container_expired:
+    "Le média préparé a expiré côté plateforme (24 h). Relancez la publication.",
+  provider_error: "La plateforme n'a pas accepté la publication. Réessayez.",
+};
+
+const MEDIA_KINDS: readonly PublishMediaKind[] = ["reel", "image"];
+
+function isMediaKind(value: string): value is PublishMediaKind {
+  return (MEDIA_KINDS as readonly string[]).includes(value);
+}
+
+/** Dépendances communes aux deux actions de publication. */
+function publishDeps(supabase: Awaited<ReturnType<typeof requireUser>>["supabase"]) {
+  const db = createServiceClient();
+  return {
+    db,
+    getProvider: (platform: string) => getProvider(platform as SocialPlatform),
+    getMonthlyQuota: async (workspaceId: string) => {
+      const { access } = await getWorkspaceAccess(supabase, workspaceId);
+      return access.quotas.publicationsPerMonth;
+    },
+  };
+}
+
+/** Publie un média sur un compte social connecté du workspace. */
+export async function publishAction(
+  _prev: PublishActionState,
+  formData: FormData,
+): Promise<PublishActionState> {
+  const auth = await requireSocialManager(formData);
+  if (!auth.ok) {
+    return { error: auth.error, status: null, permalink: null, publicationId: null };
+  }
+
+  const accountId = String(formData.get("accountId") ?? "");
+  if (!UUID.test(accountId)) {
+    return { error: "Compte invalide.", status: null, permalink: null, publicationId: null };
+  }
+  const mediaKindRaw = String(formData.get("mediaKind") ?? "reel");
+  if (!isMediaKind(mediaKindRaw)) {
+    return { error: "Type de média invalide.", status: null, permalink: null, publicationId: null };
+  }
+  const caption = String(formData.get("caption") ?? "").trim();
+
+  const { supabase, user } = await requireUser();
+  const outcome = await publishToSocialAccount(publishDeps(supabase), {
+    workspaceId: auth.membership.workspace.id,
+    socialAccountId: accountId,
+    requestedBy: user.id,
+    mediaKind: mediaKindRaw,
+    mediaUrl: String(formData.get("mediaUrl") ?? "").trim(),
+    caption: caption.length > 0 ? caption : null,
+    shareToFeed: formData.get("shareToFeed") === "on",
+  });
+
+  revalidatePath(`/app/${auth.membership.workspace.slug}/accounts`);
+
+  if (!outcome.ok) {
+    return {
+      error: PUBLISH_ERRORS[outcome.code],
+      status: null,
+      permalink: null,
+      publicationId: outcome.publicationId,
+    };
+  }
+  return {
+    error: null,
+    status: outcome.status,
+    permalink: outcome.status === "published" ? outcome.permalink : null,
+    publicationId: outcome.publicationId,
+  };
+}
+
+/**
+ * Reprend une publication laissée en cours : le conteneur distant reste
+ * valide 24 h, le média n'est jamais réenvoyé.
+ */
+export async function resumePublicationAction(
+  _prev: PublishActionState,
+  formData: FormData,
+): Promise<PublishActionState> {
+  const auth = await requireSocialManager(formData);
+  if (!auth.ok) {
+    return { error: auth.error, status: null, permalink: null, publicationId: null };
+  }
+  const publicationId = String(formData.get("publicationId") ?? "");
+  if (!UUID.test(publicationId)) {
+    return { error: "Publication invalide.", status: null, permalink: null, publicationId: null };
+  }
+
+  const { supabase } = await requireUser();
+  const outcome = await resumePublication(publishDeps(supabase), {
+    workspaceId: auth.membership.workspace.id,
+    publicationId,
+  });
+
+  revalidatePath(`/app/${auth.membership.workspace.slug}/accounts`);
+
+  if (!outcome.ok) {
+    return {
+      error: PUBLISH_ERRORS[outcome.code],
+      status: null,
+      permalink: null,
+      publicationId: outcome.publicationId,
+    };
+  }
+  return {
+    error: null,
+    status: outcome.status,
+    permalink: outcome.status === "published" ? outcome.permalink : null,
+    publicationId: outcome.publicationId,
+  };
 }

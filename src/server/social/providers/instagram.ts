@@ -1,6 +1,14 @@
 import "server-only";
 
-import type { SocialIdentity, SocialProvider, TokenSet } from "./types";
+import {
+  SocialPublishError,
+  type ContainerStatus,
+  type CreateContainerInput,
+  type SocialIdentity,
+  type SocialProvider,
+  type SocialPublisher,
+  type TokenSet,
+} from "./types";
 
 /**
  * Provider Instagram — configuration « Instagram API with Instagram Login »
@@ -52,12 +60,34 @@ import type { SocialIdentity, SocialProvider, TokenSet } from "./types";
 const AUTH_ENDPOINT = "https://www.instagram.com/oauth/authorize";
 const TOKEN_ENDPOINT = "https://api.instagram.com/oauth/access_token";
 const GRAPH_HOST = "https://graph.instagram.com";
+
+/**
+ * Version d'API épinglée : celle employée par les exemples de la
+ * documentation Instagram Platform (donc la surface réellement documentée),
+ * valable jusqu'au 29/07/2028. Un appel non versionné suit les bascules de
+ * Meta sans prévenir — on préfère un changement explicite ici.
+ * Les endpoints OAuth (`/access_token`, `/refresh_access_token`) ne sont PAS
+ * versionnés dans la documentation : ils restent tels quels.
+ */
+const API_VERSION = "v25.0";
+const GRAPH_API = `${GRAPH_HOST}/${API_VERSION}`;
+
 const LONG_LIVED_ENDPOINT = `${GRAPH_HOST}/access_token`;
 const REFRESH_ENDPOINT = `${GRAPH_HOST}/refresh_access_token`;
-const ME_ENDPOINT = `${GRAPH_HOST}/me`;
+const ME_ENDPOINT = `${GRAPH_API}/me`;
 
-/** Périmètre C8.4a : identité seulement. */
-export const INSTAGRAM_SCOPES = ["instagram_business_basic"];
+/** Identité (C8.4a). */
+export const INSTAGRAM_BASIC_SCOPE = "instagram_business_basic";
+/** Publication (C8.4b) — soumis à App Review pour l'accès avancé. */
+export const INSTAGRAM_PUBLISH_SCOPE = "instagram_business_content_publish";
+
+/**
+ * Scopes demandés à l'autorisation. La publication fait partie du produit :
+ * la demander dès la connexion évite un second passage par le consentement.
+ * Un compte connecté AVANT l'ajout de ce scope ne l'a pas : `publish.ts`
+ * vérifie les scopes réellement accordés et demande une reconnexion.
+ */
+export const INSTAGRAM_SCOPES = [INSTAGRAM_BASIC_SCOPE, INSTAGRAM_PUBLISH_SCOPE];
 
 /**
  * Meta ne documente pas de révocation côté app pour cette configuration :
@@ -181,6 +211,155 @@ async function exchangeForLongLived(shortLivedToken: string, scopes: string[]): 
   return toTokenSet((await response.json()) as LongLivedPayload, scopes);
 }
 
+/**
+ * Publication Instagram — « Content Publishing », vérifié le 2026-08-27 sur
+ * developers.facebook.com/docs/instagram-platform/content-publishing.
+ *
+ *   - hôte : `graph.instagram.com` (la mention `graph.facebook.com` de la
+ *     documentation concerne la configuration Facebook Login, pas la nôtre) ;
+ *   - deux temps OBLIGATOIRES : `POST /<IG_ID>/media` crée un conteneur, puis
+ *     `POST /<IG_ID>/media_publish` le publie. Entre les deux, un Reel est
+ *     transcodé : le conteneur n'est publiable qu'une fois `FINISHED` ;
+ *   - le média doit être servi depuis une URL PUBLIQUE : aucun upload direct
+ *     dans cette configuration ;
+ *   - un conteneur non publié EXPIRE au bout de 24 h — d'où la reprise plutôt
+ *     qu'un renvoi du média ;
+ *   - quota plateforme : 100 publications par 24 h glissantes, lisible sur
+ *     `GET /<IG_ID>/content_publishing_limit`. Il est DISTINCT du quota du
+ *     plan POSTYNC, qui est vérifié séparément.
+ *
+ * Spécifications Reel officielles (contrôlées avant l'envoi côté serveur) :
+ * MP4/MOV, H264 ou HEVC, 3 s à 15 min, 300 Mo maximum, 23 à 60 FPS,
+ * ratio 9:16 recommandé. Légende : 2200 caractères, 30 hashtags, 20 mentions.
+ */
+const CAPTION_MAX_LENGTH = 2200;
+
+type ContainerStatusPayload = { status_code?: string; id?: string };
+
+/** Statuts officiels du conteneur, ramenés à notre vocabulaire. */
+function normalizeContainerStatus(code: string | undefined): ContainerStatus {
+  switch (code) {
+    case "FINISHED":
+      return "ready";
+    case "IN_PROGRESS":
+      return "processing";
+    case "PUBLISHED":
+      return "published";
+    case "EXPIRED":
+      return "expired";
+    case "ERROR":
+      return "failed";
+    default:
+      // Un statut inconnu n'est pas « prêt » : on ne publie jamais au hasard.
+      return "processing";
+  }
+}
+
+async function postGraph(
+  path: string,
+  accessToken: string,
+  params: Record<string, string>,
+): Promise<Record<string, unknown>> {
+  const body = new URLSearchParams({ ...params, access_token: accessToken });
+  const response = await fetch(`${GRAPH_API}${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
+  if (!response.ok) {
+    // Le code court suffit au diagnostic ; le corps Meta peut contenir des
+    // identifiants et n'est jamais propagé.
+    throw new SocialPublishError(
+      `http_${response.status}`,
+      `instagram ${path}: HTTP ${response.status} ${await metaErrorCode(response)}`,
+    );
+  }
+  return unwrap<Record<string, unknown>>(await response.json());
+}
+
+export const instagramPublisher: SocialPublisher = {
+  requiredScopes: [INSTAGRAM_PUBLISH_SCOPE],
+  supportedMediaKinds: ["reel", "image"],
+
+  async createContainer(input: CreateContainerInput): Promise<string> {
+    if (input.caption && input.caption.length > CAPTION_MAX_LENGTH) {
+      throw new SocialPublishError("caption_too_long");
+    }
+
+    const params: Record<string, string> = {};
+    if (input.mediaKind === "reel") {
+      params.media_type = "REELS";
+      params.video_url = input.mediaUrl;
+      if (input.coverUrl) params.cover_url = input.coverUrl;
+      // `share_to_feed` n'existe que pour les Reels.
+      if (input.shareToFeed !== undefined) params.share_to_feed = String(input.shareToFeed);
+    } else {
+      // Image : pas de `media_type`, l'URL suffit (JPEG uniquement côté Meta).
+      params.image_url = input.mediaUrl;
+    }
+    if (input.caption) params.caption = input.caption;
+
+    const payload = await postGraph(`/${input.providerAccountId}/media`, input.accessToken, params);
+    const containerId = payload.id;
+    if (typeof containerId !== "string" && typeof containerId !== "number") {
+      throw new SocialPublishError("container_missing");
+    }
+    return String(containerId);
+  },
+
+  async containerStatus({ accessToken, containerId }): Promise<ContainerStatus> {
+    const url = new URL(`${GRAPH_API}/${containerId}`);
+    url.searchParams.set("fields", "status_code");
+    url.searchParams.set("access_token", accessToken);
+
+    const response = await fetch(url, { method: "GET" });
+    if (!response.ok) {
+      throw new SocialPublishError(
+        `http_${response.status}`,
+        `instagram container: HTTP ${response.status} ${await metaErrorCode(response)}`,
+      );
+    }
+    const payload = unwrap<ContainerStatusPayload>(await response.json());
+    return normalizeContainerStatus(payload.status_code);
+  },
+
+  async publishContainer({ accessToken, providerAccountId, containerId }) {
+    const payload = await postGraph(`/${providerAccountId}/media_publish`, accessToken, {
+      creation_id: containerId,
+    });
+    const mediaId = payload.id;
+    if (typeof mediaId !== "string" && typeof mediaId !== "number") {
+      throw new SocialPublishError("media_id_missing");
+    }
+    return { providerMediaId: String(mediaId) };
+  },
+
+  /** Best effort : l'absence de permalien ne remet pas en cause la publication. */
+  async fetchPermalink({ accessToken, providerMediaId }) {
+    const url = new URL(`${GRAPH_API}/${providerMediaId}`);
+    url.searchParams.set("fields", "permalink");
+    url.searchParams.set("access_token", accessToken);
+    const response = await fetch(url, { method: "GET" });
+    if (!response.ok) return null;
+    const payload = unwrap<{ permalink?: string }>(await response.json());
+    return payload.permalink ?? null;
+  },
+
+  /** Quota imposé par Instagram — 100 publications / 24 h glissantes. */
+  async remoteQuota({ accessToken, providerAccountId }) {
+    const url = new URL(`${GRAPH_API}/${providerAccountId}/content_publishing_limit`);
+    url.searchParams.set("fields", "quota_usage,config");
+    url.searchParams.set("access_token", accessToken);
+    const response = await fetch(url, { method: "GET" });
+    if (!response.ok) return null;
+    const payload = unwrap<{ quota_usage?: number; config?: { quota_total?: number } }>(
+      await response.json(),
+    );
+    if (typeof payload.quota_usage !== "number") return null;
+    return { used: payload.quota_usage, limit: payload.config?.quota_total ?? 100 };
+  },
+};
+
 export const instagramProvider: SocialProvider = {
   platform: "instagram",
   usesPkce: false,
@@ -292,4 +471,6 @@ export const instagramProvider: SocialProvider = {
   // configuration. La notice ci-dessous est affichée à la déconnexion pour ne
   // pas laisser croire que l'autorisation Instagram a été retirée.
   revokeNotice: INSTAGRAM_REVOKE_NOTICE,
+
+  publisher: instagramPublisher,
 };

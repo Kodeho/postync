@@ -434,6 +434,46 @@ opportuniste des états expirés à chaque création.
 Écritures via service client uniquement (Server Actions + callback OAuth),
 après contrôle applicatif session + rôle owner/admin.
 
+## Publications sociales (C8.4b)
+
+### Table `social_publications`
+
+Trace des publications d'un workspace. Elle existe pour trois raisons :
+faire respecter le quota `publicationsPerMonth` du plan (sans trace, ce quota
+serait inapplicable), permettre la REPRISE d'une publication restée en cours
+(un conteneur Instagram vit 24 h — on ne réenvoie jamais le média), et donner
+un historique consultable.
+
+| Colonne | Rôle |
+| --- | --- |
+| `workspace_id` | propriétaire de la publication (`on delete cascade`) |
+| `social_account_id` | compte utilisé (`on delete set null` : la trace survit à une déconnexion) |
+| `platform`, `provider_account_id` | conservés même si le compte disparaît |
+| `media_kind` | `reel` ou `image` |
+| `media_url` | URL **publique** du média source |
+| `caption` | 2200 caractères maximum (contrainte alignée sur Instagram) |
+| `container_id` | conteneur distant, support de la reprise |
+| `provider_media_id`, `permalink` | résultat de la publication |
+| `status` | `pending`, `published` ou `failed` |
+| `status_detail` | code court non sensible (jamais de token, jamais de payload) |
+
+Contrainte : une ligne `published` porte forcément `provider_media_id` **et**
+`published_at`.
+
+> `media_url` ne doit JAMAIS recevoir une URL signée ou porteuse d'un
+> identifiant d'accès. Instagram exige un média publiquement accessible ;
+> quand l'étape « media » apportera un stockage, y placer la clé de l'objet.
+
+### RLS et privilèges (C8.4b)
+
+| Table | authenticated |
+| --- | --- |
+| `social_publications` | SELECT (liste blanche de colonnes) ; politique : membre du workspace ou personnel plateforme ; **aucune écriture** |
+
+Aucune colonne sensible n'existe dans cette table, mais la liste blanche
+reste explicite : une colonne ajoutée plus tard n'est pas lisible tant
+qu'elle n'a pas été ajoutée au `grant`.
+
 ## Appliquer la migration
 
 ```powershell

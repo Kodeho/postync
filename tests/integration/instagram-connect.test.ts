@@ -148,7 +148,10 @@ describe.skipIf(!CONFIGURED)("C8.4a — connexion Instagram (chaîne réelle)", 
 
     expect(url.origin + url.pathname).toBe("https://www.instagram.com/oauth/authorize");
     expect(url.searchParams.get("client_id")).toBe("integration-ig-app-id");
-    expect(url.searchParams.get("scope")).toBe("instagram_business_basic");
+    // Identité + publication : demandées ensemble à la connexion.
+    expect(url.searchParams.get("scope")).toBe(
+      "instagram_business_basic,instagram_business_content_publish",
+    );
     expect(url.searchParams.get("response_type")).toBe("code");
     expect(url.searchParams.get("redirect_uri")).toBe(
       "https://postync.vercel.app/api/oauth/instagram/callback",
