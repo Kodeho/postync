@@ -48,40 +48,68 @@ describe("state OAuth", () => {
 });
 
 describe("statut effectif d'un compte", () => {
-  it("active + jeton valide -> Connecté", () => {
-    expect(
-      effectiveStatus({ status: "active", token_expires_at: FUTURE, refresh_expires_at: null }, NOW),
-    ).toBe("active");
+  /** Raccourci : un compte actif décrit par ses seules dates et sa capacité de refresh. */
+  const compte = (
+    token: string | null,
+    refresh: string | null,
+    canRefresh: boolean,
+  ) => ({
+    status: "active" as const,
+    token_expires_at: token,
+    refresh_expires_at: refresh,
+    can_refresh: canRefresh,
   });
 
-  it("active + jeton expiré SANS refresh -> Expiré (reconnexion)", () => {
-    expect(
-      effectiveStatus({ status: "active", token_expires_at: PAST, refresh_expires_at: null }, NOW),
-    ).toBe("expired");
+  it("jeton valide -> Connecté", () => {
+    expect(effectiveStatus(compte(FUTURE, null, false), NOW)).toBe("active");
   });
 
-  it("active + jeton expiré AVEC refresh encore valide -> Connecté (refresh à la demande)", () => {
-    expect(
-      effectiveStatus({ status: "active", token_expires_at: PAST, refresh_expires_at: FUTURE }, NOW),
-    ).toBe("active");
+  it("YOUTUBE — jeton d'une heure expiré MAIS refresh token disponible -> Connecté", () => {
+    // Le cas qui a motivé la correction : Google ne date pas l'expiration du
+    // refresh token (`refresh_expires_at` null), et l'access token ne dure
+    // qu'une heure. Raisonner sur les seules dates faisait passer le compte
+    // pour mort dès la 61e minute.
+    expect(effectiveStatus(compte(PAST, null, true), NOW)).toBe("active");
   });
 
-  it("refresh token expiré (TikTok 365 j) -> Expiré", () => {
-    expect(
-      effectiveStatus({ status: "active", token_expires_at: PAST, refresh_expires_at: PAST }, NOW),
-    ).toBe("expired");
+  it("jeton expiré SANS aucun moyen de rafraîchir -> Expiré (reconnexion)", () => {
+    expect(effectiveStatus(compte(PAST, null, false), NOW)).toBe("expired");
   });
 
-  it("jeton non expirant (Page Meta) -> Connecté", () => {
+  it("jeton expiré avec refresh encore valide et daté -> Connecté", () => {
+    expect(effectiveStatus(compte(PAST, FUTURE, true), NOW)).toBe("active");
+  });
+
+  it("refresh token expiré (TikTok, 365 j) -> Expiré même si can_refresh", () => {
+    // Le refresh token existe encore en base mais il est périmé : la
+    // possession d'un jeton ne vaut pas capacité à s'en servir.
+    expect(effectiveStatus(compte(PAST, PAST, true), NOW)).toBe("expired");
+  });
+
+  it("INSTAGRAM — dates alignées, avant échéance -> Connecté", () => {
+    // Instagram n'a pas de refresh token distinct (can_refresh false) : le
+    // jeton se rafraîchit lui-même tant qu'il est valide.
+    expect(effectiveStatus(compte(FUTURE, FUTURE, false), NOW)).toBe("active");
+  });
+
+  it("INSTAGRAM — dates alignées, après échéance -> Expiré", () => {
+    expect(effectiveStatus(compte(PAST, PAST, false), NOW)).toBe("expired");
+  });
+
+  it("FACEBOOK — jeton de Page sans date d'expiration -> Connecté", () => {
+    expect(effectiveStatus(compte(null, null, false), NOW)).toBe("active");
+  });
+
+  it("un statut non actif prime toujours sur les dates", () => {
     expect(
-      effectiveStatus({ status: "active", token_expires_at: null, refresh_expires_at: null }, NOW),
-    ).toBe("active");
+      effectiveStatus(
+        { status: "revoked", token_expires_at: FUTURE, refresh_expires_at: null, can_refresh: true },
+        NOW,
+      ),
+    ).toBe("revoked");
   });
 
   it("revoked / error : conservés tels quels ; reconnexion proposée", () => {
-    expect(
-      effectiveStatus({ status: "revoked", token_expires_at: FUTURE, refresh_expires_at: null }, NOW),
-    ).toBe("revoked");
     expect(needsReconnect("active")).toBe(false);
     expect(needsReconnect("expired")).toBe(true);
     expect(needsReconnect("revoked")).toBe(true);

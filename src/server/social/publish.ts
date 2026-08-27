@@ -8,7 +8,7 @@ import {
   type PublishMediaKind,
   type SocialProvider,
 } from "./providers/types";
-import { vaultRead } from "./vault";
+import { getUsableAccessToken } from "./token";
 
 /**
  * Orchestration de la publication sociale.
@@ -54,6 +54,7 @@ export type PublishFailureCode =
   | "account_inactive"
   | "quota_exceeded"
   | "token_unavailable"
+  | "needs_reconnect"
   | "container_failed"
   | "container_expired"
   | "provider_error";
@@ -127,6 +128,8 @@ type AccountRow = {
   scopes: string[] | null;
   status: string;
   access_token_id: string | null;
+  refresh_token_id: string | null;
+  token_expires_at: string | null;
 };
 
 /** Erreur courte, jamais de token ni de payload brut. */
@@ -275,7 +278,10 @@ export async function publishToSocialAccount(
   // DEUX colonnes, un identifiant volé ne suffit pas.
   const { data: account } = await db
     .from("social_accounts")
-    .select("id, workspace_id, platform, provider_account_id, scopes, status, access_token_id")
+    .select(
+      "id, workspace_id, platform, provider_account_id, scopes, status, " +
+        "access_token_id, refresh_token_id, token_expires_at",
+    )
     .eq("id", request.socialAccountId)
     .eq("workspace_id", request.workspaceId)
     .maybeSingle<AccountRow>();
@@ -319,13 +325,13 @@ export async function publishToSocialAccount(
     return { ok: false, code: "quota_exceeded", publicationId: null };
   }
 
-  if (!account.access_token_id) {
-    return { ok: false, code: "token_unavailable", publicationId: null };
+  // Le jeton est renouvelé si nécessaire AVANT la publication : un jeton qui
+  // expire au milieu d'un transfert serait pire qu'un jeton déjà expiré.
+  const token = await getUsableAccessToken({ db, now }, provider, account);
+  if (!token.ok) {
+    return { ok: false, code: token.code, publicationId: null };
   }
-  const accessToken = await vaultRead(db, account.access_token_id);
-  if (!accessToken) {
-    return { ok: false, code: "token_unavailable", publicationId: null };
-  }
+  const accessToken = token.accessToken;
 
   // La ligne est créée AVANT l'appel distant : une publication réellement
   // partie ne peut pas rester sans trace, et elle consomme le quota.
@@ -434,17 +440,22 @@ export async function resumePublication(
   }
   const { data: account } = await db
     .from("social_accounts")
-    .select("access_token_id")
+    .select(
+      "id, workspace_id, platform, provider_account_id, scopes, status, " +
+        "access_token_id, refresh_token_id, token_expires_at",
+    )
     .eq("id", publication.social_account_id)
     .eq("workspace_id", input.workspaceId)
-    .maybeSingle<{ access_token_id: string | null }>();
-  if (!account?.access_token_id) {
+    .maybeSingle<AccountRow>();
+  if (!account) {
     return { ok: false, code: "token_unavailable", publicationId: publication.id };
   }
-  const accessToken = await vaultRead(db, account.access_token_id);
-  if (!accessToken) {
-    return { ok: false, code: "token_unavailable", publicationId: publication.id };
+
+  const token = await getUsableAccessToken({ db, now: deps.now }, provider, account);
+  if (!token.ok) {
+    return { ok: false, code: token.code, publicationId: publication.id };
   }
+  const accessToken = token.accessToken;
 
   let status: ContainerStatus;
   try {

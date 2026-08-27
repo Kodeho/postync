@@ -11,7 +11,7 @@ import type { SocialAccountRow, SocialPublicationRow } from "./accounts";
  */
 const SAFE_COLUMNS =
   "id, workspace_id, platform, provider_account_id, display_name, avatar_url, " +
-  "token_expires_at, refresh_expires_at, scopes, status, status_detail, connected_at";
+  "token_expires_at, refresh_expires_at, scopes, status, status_detail, connected_at, can_refresh";
 
 export async function listSocialAccounts(
   supabase: SupabaseClient,

@@ -214,6 +214,8 @@ const PUBLISH_ERRORS: Record<PublishFailureCode, string> = {
   quota_exceeded:
     "Limite de publications du plan atteinte pour ce mois-ci. Passez à un plan supérieur.",
   token_unavailable: "L'autorisation de ce compte est indisponible. Reconnectez-le.",
+  needs_reconnect:
+    "L'autorisation de ce compte n'a pas pu être renouvelée auprès de la plateforme. Reconnectez-le.",
   container_failed: "La plateforme a rejeté le média. Vérifiez son format et sa durée.",
   container_expired:
     "Le média préparé a expiré côté plateforme (24 h). Relancez la publication.",

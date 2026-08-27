@@ -20,6 +20,11 @@ export type SocialAccountRow = {
   status: SocialAccountStatus;
   status_detail: string | null;
   connected_at: string;
+  /**
+   * Colonne GÉNÉRÉE en base : « un refresh token distinct existe ». Dérivée de
+   * `refresh_token_id` sans jamais exposer cette référence Vault.
+   */
+  can_refresh: boolean;
 };
 
 export const SOCIAL_STATUS_LABELS: Record<SocialAccountStatus, string> = {
@@ -37,26 +42,39 @@ export const PLATFORM_LABELS: Record<SocialPlatform, string> = {
 };
 
 /**
- * Statut effectif à l'affichage : une ligne `active` dont l'access token est
- * expiré SANS refresh token possible est montrée « expirée » (le refresh à la
- * demande couvre le cas où un refresh token existe).
+ * Statut effectif à l'affichage.
+ *
+ * Un access token expiré ne veut PAS dire qu'un compte est mort : un jeton
+ * YouTube dure une heure et se rafraîchit ensuite. Présenter un tel compte
+ * comme « Expiré » était faux et poussait à une reconnexion inutile.
+ *
+ * L'ordre des questions compte :
+ *   1. le MOYEN de rafraîchir est-il lui-même périmé ? alors plus rien à faire ;
+ *   2. l'access token est-il encore valide ? alors tout va bien ;
+ *   3. sinon, le compte reste exploitable s'il existe un refresh token
+ *      distinct — le rafraîchissement a lieu à la demande, avant usage.
  */
 export function effectiveStatus(
-  account: Pick<SocialAccountRow, "status" | "token_expires_at" | "refresh_expires_at">,
+  account: Pick<
+    SocialAccountRow,
+    "status" | "token_expires_at" | "refresh_expires_at" | "can_refresh"
+  >,
   now: number = Date.now(),
 ): SocialAccountStatus {
   if (account.status !== "active") {
     return account.status;
   }
-  const tokenExpired =
-    account.token_expires_at !== null && new Date(account.token_expires_at).getTime() <= now;
   const refreshExpired =
     account.refresh_expires_at !== null && new Date(account.refresh_expires_at).getTime() <= now;
-  if (refreshExpired || (tokenExpired && account.refresh_expires_at === null)) {
-    // Plus aucun moyen de rafraîchir : reconnexion nécessaire.
+  if (refreshExpired) {
     return "expired";
   }
-  return "active";
+  const tokenExpired =
+    account.token_expires_at !== null && new Date(account.token_expires_at).getTime() <= now;
+  if (!tokenExpired) {
+    return "active";
+  }
+  return account.can_refresh ? "active" : "expired";
 }
 
 /** Une reconnexion est proposée pour tout compte non « Connecté ». */
