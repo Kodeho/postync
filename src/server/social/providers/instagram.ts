@@ -147,6 +147,22 @@ function unwrap<T>(payload: unknown): T {
   return (payload ?? {}) as T;
 }
 
+/**
+ * Liste de scopes accordés. ATTENTION : la documentation Meta montre
+ * `"permissions": "a,b,c"` (une chaîne), mais l'API renvoie en pratique un
+ * TABLEAU. Constaté en conditions réelles le 2026-08-27. Les deux formes sont
+ * donc acceptées — se fier au seul exemple de la doc casse la connexion.
+ */
+function toScopeList(value: unknown, fallback: string[]): string[] {
+  const parts = Array.isArray(value)
+    ? value.map((item) => String(item))
+    : typeof value === "string"
+      ? value.split(",")
+      : [];
+  const scopes = parts.map((scope) => scope.trim()).filter(Boolean);
+  return scopes.length > 0 ? scopes : fallback;
+}
+
 /** Code d'erreur court d'une réponse Meta — jamais le corps complet. */
 async function metaErrorCode(response: Response): Promise<string> {
   try {
@@ -392,18 +408,18 @@ export const instagramProvider: SocialProvider = {
       throw new Error(`instagram token: HTTP ${response.status} ${await metaErrorCode(response)}`);
     }
 
-    const short = unwrap<{ access_token?: string; user_id?: string | number; permissions?: string }>(
-      await response.json(),
-    );
+    const short = unwrap<{
+      access_token?: string;
+      user_id?: string | number;
+      permissions?: unknown;
+    }>(await response.json());
     if (!short.access_token) {
       throw new Error("instagram token: réponse sans access_token");
     }
 
     // `permissions` reflète ce que l'utilisateur a RÉELLEMENT accordé : on le
     // conserve tel quel plutôt que de présumer que tout a été accepté.
-    const granted = short.permissions
-      ? short.permissions.split(",").map((scope) => scope.trim()).filter(Boolean)
-      : INSTAGRAM_SCOPES;
+    const granted = toScopeList(short.permissions, INSTAGRAM_SCOPES);
 
     // Le token court vaut 1 heure : il est immédiatement converti en token
     // longue durée, seul jeton conservé dans Vault.

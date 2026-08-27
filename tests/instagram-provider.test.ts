@@ -190,6 +190,45 @@ describe("échange de code", () => {
     ]);
   });
 
+  it("permissions renvoyées en TABLEAU : forme réellement observée de l'API", async () => {
+    // La doc Meta montre une chaîne « a,b,c » ; l'API renvoie un tableau.
+    // Constaté en E2E réel le 2026-08-27 — se fier à la doc cassait la connexion.
+    mockFetchSequence(
+      json({
+        data: [
+          {
+            access_token: "IGAA.short",
+            user_id: "1",
+            permissions: ["instagram_business_basic", "instagram_business_content_publish"],
+          },
+        ],
+      }),
+      json(longLived),
+    );
+    const tokens = await instagramProvider.exchangeCode({
+      code: "c",
+      codeVerifier: null,
+      redirectUri: REDIRECT,
+    });
+    expect(tokens.scopes).toEqual([
+      "instagram_business_basic",
+      "instagram_business_content_publish",
+    ]);
+  });
+
+  it("permissions absentes ou vides : repli sur les scopes demandés", async () => {
+    mockFetchSequence(
+      json({ data: [{ access_token: "IGAA.short", user_id: "1", permissions: [] }] }),
+      json(longLived),
+    );
+    const tokens = await instagramProvider.exchangeCode({
+      code: "c",
+      codeVerifier: null,
+      redirectUri: REDIRECT,
+    });
+    expect(tokens.scopes).toEqual(INSTAGRAM_SCOPES);
+  });
+
   it("réponse à plat (hors enveloppe `data`) également acceptée", async () => {
     mockFetchSequence(
       json({ access_token: "IGAA.short", user_id: "1" }),
