@@ -238,10 +238,20 @@ describe.skipIf(!CONFIGURED)("C8.4c — sélection des Pages (chaîne réelle)",
       .single();
     const tokenId = before!.user_token_id as string;
 
-    await admin
+    // La contrainte `social_connection_drafts_ttl_check` impose
+    // `expires_at > created_at` : reculer la seule échéance produit une ligne
+    // INVALIDE, l'écriture est refusée et le brouillon reste vivant. Le test ne
+    // passait donc que si plus d'une seconde s'écoulait entre la création et
+    // cette mise à jour — une course, pas une vérification. On recule les DEUX
+    // dates, et on exige que l'écriture ait réellement eu lieu.
+    const { error: peremption } = await admin
       .from("social_connection_drafts")
-      .update({ expires_at: new Date(Date.now() - 1000).toISOString() })
+      .update({
+        created_at: new Date(Date.now() - 60_000).toISOString(),
+        expires_at: new Date(Date.now() - 30_000).toISOString(),
+      })
       .eq("id", draftId);
+    expect(peremption).toBeNull();
 
     expect(await readConnectionDraft(admin, { draftId, workspaceId, userId: ids.owner })).toBeNull();
     const { count } = await admin
