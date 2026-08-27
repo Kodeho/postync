@@ -49,6 +49,21 @@ export const PUBLISHER: Publisher = {
 };
 
 /**
+ * Région d'exécution des fonctions Vercel.
+ *
+ * Ces trois constantes décrivent la réalité MESURÉE, pas un souhait, et
+ * doivent suivre `vercel.json`. Sans `regions`, Vercel exécute par défaut en
+ * `iad1` (Washington) : c'était le cas jusqu'au 2026-08-27, la base vivant à
+ * Londres, donc un aller-retour transatlantique par requête et des données
+ * personnelles traitées aux États-Unis. Le calcul est désormais co-localisé
+ * avec la base. Un test échoue si la fiche du sous-traitant s'en écarte.
+ */
+export const HOSTING_REGION_LABEL = "Londres, Royaume-Uni (région lhr1)";
+export const HOSTING_OUTSIDE_EEA = true;
+export const HOSTING_SAFEGUARD =
+  "Décision d'adéquation de la Commission européenne du 28 juin 2021 en faveur du Royaume-Uni";
+
+/**
  * Sous-traitants au sens de l'article 28 du RGPD : ils traitent des données
  * personnelles POUR le compte de POSTYNC, sur ses instructions.
  *
@@ -57,20 +72,6 @@ export const PUBLISHER: Publisher = {
  * propre traitement — la distinction change les obligations, elle n'est pas
  * cosmétique.
  */
-/**
- * Région d'exécution des fonctions Vercel.
- *
- * ATTENTION — ces trois constantes décrivent la réalité MESURÉE, pas un
- * souhait : sans `regions` dans la configuration, Vercel exécute en `iad1`
- * (Washington). La base vivant à Londres, chaque requête traverse
- * l'Atlantique et des données personnelles sont traitées aux États-Unis.
- * Si la région change, ces trois valeurs changent AVEC elle.
- */
-export const HOSTING_REGION_LABEL = "Washington, États-Unis (région iad1)";
-export const HOSTING_OUTSIDE_EEA = true;
-export const HOSTING_SAFEGUARD =
-  "Clauses contractuelles types de la Commission européenne, prévues par l'accord de traitement des données de Vercel";
-
 export type Subprocessor = {
   name: string;
   role: string;
