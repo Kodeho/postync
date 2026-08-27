@@ -160,7 +160,7 @@ export async function connectSelectedAssets(
 
   const { count: totalAccounts } = await deps.db
     .from("social_accounts")
-    .select("*", { count: "exact", head: true })
+    .select("id", { count: "exact", head: true })
     .eq("workspace_id", draft.workspaceId);
   const quota = await deps.getQuota(draft.workspaceId);
 

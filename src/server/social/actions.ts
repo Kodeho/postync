@@ -94,7 +94,7 @@ export async function startConnectAction(
       getWorkspaceAccess(supabase, workspace.id),
       db
         .from("social_accounts")
-        .select("*", { count: "exact", head: true })
+        .select("id", { count: "exact", head: true })
         .eq("workspace_id", workspace.id),
     ]);
     if (!canConnectMore(count ?? 0, access.quotas.socialAccounts)) {

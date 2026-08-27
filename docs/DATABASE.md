@@ -454,11 +454,29 @@ un historique consultable.
 | `caption` | 2200 caractères maximum (contrainte alignée sur Instagram) |
 | `container_id` | conteneur distant, support de la reprise |
 | `provider_media_id`, `permalink` | résultat de la publication |
-| `status` | `pending`, `published` ou `failed` |
+| `status` | `scheduled`, `pending`, `published`, `failed` ou `canceled` |
+| `scheduled_at` | échéance demandée ; null pour une publication immédiate (C10.1) |
+| `effective_at` | colonne GÉNÉRÉE `coalesce(scheduled_at, created_at)` : le mois auquel la publication se rattache, base du quota (C10.1) |
+| `attempts` | tentatives de publication différée ; **non accordée au client** (C10.1) |
 | `status_detail` | code court non sensible (jamais de token, jamais de payload) |
 
-Contrainte : une ligne `published` porte forcément `provider_media_id` **et**
-`published_at`.
+Contraintes : une ligne `published` porte forcément `provider_media_id` **et**
+`published_at` ; une ligne `scheduled` porte forcément `scheduled_at`.
+
+### Fonction `claim_due_publications(p_limit, p_max_attempts)` (C10.1)
+
+Réclame les publications dues en faisant passer atomiquement `scheduled` à
+`pending`, avec `for update skip locked`. C'est ce qui interdit qu'une même
+publication parte DEUX FOIS — sur un réseau social, l'erreur est publique et
+irrattrapable.
+
+Elle balaie la table entière, tous workspaces confondus : c'est le seul accès
+du produit qui ignore délibérément le cloisonnement, parce qu'il n'agit pour
+personne en particulier. `security definer`, `EXECUTE` révoqué à `anon` et
+`authenticated`, accordé au seul `service_role`.
+
+Au-delà de `p_max_attempts`, la publication bascule en `failed` avec
+`status_detail = 'too_many_attempts'` plutôt que d'être reprise sans fin.
 
 > `media_url` ne doit JAMAIS recevoir une URL signée ou porteuse d'un
 > identifiant d'accès. Instagram exige un média publiquement accessible ;

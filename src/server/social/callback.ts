@@ -173,7 +173,7 @@ export async function handleOAuthCallback(
       deps.getQuota(state.workspaceId),
       db
         .from("social_accounts")
-        .select("*", { count: "exact", head: true })
+        .select("id", { count: "exact", head: true })
         .eq("workspace_id", state.workspaceId),
     ]);
     if (!canConnectMore(count ?? 0, quota)) {

@@ -148,6 +148,13 @@ autorité est celle de la page.
   restée vivante côté plateforme ne doit pas passer inaperçue.
 - Le quota `socialAccounts` du plan (C7, Full Access compris) est appliqué à
   la connexion, côté serveur.
+- **Le planificateur est le seul accès qui ignore le cloisonnement** (C10.1).
+  `claim_due_publications()` balaie la table entière : elle n'agit pour aucun
+  workspace en particulier. Elle est donc `security definer`, son `EXECUTE` est
+  RÉVOQUÉ à `anon` et `authenticated`, et accordé au seul `service_role` — elle
+  n'est atteignable depuis aucune session. Le quota `publicationsPerMonth`
+  compte les publications `scheduled` : sans cela, tout programmer suffirait à
+  publier sans limite.
 
 ## Sélection d'actifs (C8.4c, Pages Facebook)
 

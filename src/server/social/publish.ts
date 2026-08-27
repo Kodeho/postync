@@ -135,11 +135,17 @@ export function currentMonthRange(now: number): { start: string; end: string } {
 }
 
 /**
- * Une publication `failed` ne consomme pas le quota : seules celles qui ont
- * abouti ou qui sont encore en cours comptent.
+ * Statuts qui consomment le quota mensuel du plan.
+ *
+ * `failed` et `canceled` ne comptent pas : on ne facture pas un échec ni un
+ * renoncement. `scheduled` compte, en revanche — sans quoi il suffirait de
+ * tout programmer pour publier sans limite, et le quota ne voudrait plus rien
+ * dire.
  */
+export const QUOTA_STATUSES = ["published", "pending", "scheduled"] as const;
+
 export function countsTowardQuota(status: string): boolean {
-  return status === "published" || status === "pending";
+  return (QUOTA_STATUSES as readonly string[]).includes(status);
 }
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -341,11 +347,14 @@ export async function publishToSocialAccount(
     deps.getMonthlyQuota(request.workspaceId),
     db
       .from("social_publications")
-      .select("*", { count: "exact", head: true })
+      .select("id", { count: "exact", head: true })
       .eq("workspace_id", request.workspaceId)
-      .in("status", ["published", "pending"])
-      .gte("created_at", start)
-      .lt("created_at", end),
+      .in("status", QUOTA_STATUSES as unknown as string[])
+      // `effective_at` et non `created_at` : une publication programmée
+      // consomme le quota du mois où elle PARAÎT, pas de celui où on l'a
+      // saisie. Colonne générée, donc toujours cohérente.
+      .gte("effective_at", start)
+      .lt("effective_at", end),
   ]);
   if ((count ?? 0) >= quota) {
     return { ok: false, code: "quota_exceeded", publicationId: null };

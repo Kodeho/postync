@@ -174,6 +174,24 @@ son flux Pages distinct, fera l'objet de sa propre sous-étape. Chaque provider
 est ajouté après vérification de sa documentation officielle. UI :
 `/app/[workspaceSlug]/accounts` + `src/features/accounts/account-forms.tsx`.
 
+### Planification (C10.1)
+
+`src/server/social/schedule.ts` programme une publication : mêmes contrôles
+que la publication immédiate, appliqués À LA SAISIE (compte du workspace,
+compte actif, réseau capable, scopes réellement accordés, compatibilité du
+média, quota du plan), puis insertion d'une ligne `scheduled` portant son
+échéance. Aucune URL signée n'est forgée : elle n'aurait aucun sens des heures
+à l'avance.
+
+L'exécution repose sur `claim_due_publications()`, en base. La réclamation est
+une TRANSITION D'ÉTAT atomique (`scheduled` -> `pending`) avec
+`for update skip locked` : deux exécutions concurrentes ne peuvent pas réclamer
+la même ligne, ce qu'un test éprouve en les lançant ensemble. Un planificateur
+qui publierait deux fois serait pire que pas de planificateur — l'erreur est
+publique et irrattrapable. Le statut `pending` est celui qui existait déjà pour
+« en cours, reprenable » : le mécanisme de reprise de C8.4b s'applique sans
+code nouveau. `attempts` borne les reprises.
+
 ### Publication (C8.4b)
 
 `src/server/social/publish.ts` orchestre la publication : contrôles
