@@ -197,13 +197,30 @@ type ReelStatusPayload = {
   };
 };
 
+/**
+ * Statuts observés en conditions réelles le 2026-08-27.
+ *
+ * PIÈGE : la documentation dit « attendez `ready` avant la phase finish ».
+ * C'est vrai pour l'upload binaire par morceaux. Avec `file_url`, la vidéo
+ * s'arrête à `upload_complete` — `processing_phase` reste `not_started` —
+ * et le traitement ne démarre QUE lorsqu'on appelle `finish`. Attendre
+ * `ready` avant de publier bloque donc indéfiniment.
+ *
+ * `upload_complete` est l'état à partir duquel on peut publier : le transfert
+ * est fini et le contrôle de droits d'auteur est passé.
+ */
 function normalizeReelStatus(payload: ReelStatusPayload): ContainerStatus {
   const status = payload.status;
   if (!status) return "processing";
-  if (status.video_status === "ready") return "ready";
-  if (status.processing_phase?.status === "error" || status.uploading_phase?.status === "error") {
+
+  if (status.uploading_phase?.status === "error" || status.processing_phase?.status === "error") {
     return "failed";
   }
+  if (status.video_status === "ready" || status.video_status === "upload_complete") {
+    return "ready";
+  }
+  if (status.video_status === "error") return "failed";
+
   // Tout le reste (uploading, processing) reste « en cours » : on ne publie
   // jamais sur la foi d'un statut qu'on ne comprend pas.
   return "processing";

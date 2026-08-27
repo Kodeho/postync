@@ -309,11 +309,36 @@ describe("publication d'un Reel", () => {
     ).toBeNull();
   });
 
-  it("statut : ready seulement quand video_status vaut ready", async () => {
+  it("statut : ready quand video_status vaut ready", async () => {
     mockFetchSequence(json({ status: { video_status: "ready" } }));
     await expect(
       facebookPublisher.containerStatus({ accessToken: PAGE_TOKEN, containerId: "7788" }),
     ).resolves.toBe("ready");
+  });
+
+  it("statut : upload_complete est publiable — observe en reel", async () => {
+    // Avec file_url, la video s'arrete a upload_complete et le traitement ne
+    // demarre QU'AU moment du finish. Attendre `ready` bloque indefiniment.
+    mockFetchSequence(
+      json({
+        status: {
+          video_status: "upload_complete",
+          uploading_phase: { status: "complete" },
+          processing_phase: { status: "not_started" },
+          publishing_phase: { status: "not_started" },
+        },
+      }),
+    );
+    await expect(
+      facebookPublisher.containerStatus({ accessToken: PAGE_TOKEN, containerId: "7788" }),
+    ).resolves.toBe("ready");
+  });
+
+  it("statut : erreur de transfert remontee comme echec", async () => {
+    mockFetchSequence(json({ status: { uploading_phase: { status: "error" } } }));
+    await expect(
+      facebookPublisher.containerStatus({ accessToken: PAGE_TOKEN, containerId: "7788" }),
+    ).resolves.toBe("failed");
   });
 
   it("statut : traitement en cours, et statut inconnu jamais publiable", async () => {
