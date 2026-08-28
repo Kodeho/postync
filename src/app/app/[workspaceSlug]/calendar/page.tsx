@@ -40,8 +40,6 @@ export const metadata: Metadata = {
  * qu'aux extrémités du mois.
  */
 
-const TIME_ZONE = "Europe/Paris";
-
 const JOURS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 
 const TONS: Record<SocialPublicationStatus, "success" | "warning" | "danger" | "neutral"> = {
@@ -52,11 +50,8 @@ const TONS: Record<SocialPublicationStatus, "success" | "warning" | "danger" | "
   canceled: "neutral",
 };
 
-function moisCourant(): string {
-  const maintenant = new Date();
-  const [annee, mois] = maintenant
-    .toLocaleDateString("en-CA", { timeZone: TIME_ZONE })
-    .split("-");
+function moisCourant(timeZone: string): string {
+  const [annee, mois] = new Date().toLocaleDateString("en-CA", { timeZone }).split("-");
   return `${annee}-${mois}`;
 }
 
@@ -69,11 +64,11 @@ function libelleMois(month: string): string {
   });
 }
 
-function heure(iso: string): string {
+function heure(iso: string, timeZone: string): string {
   return new Date(iso).toLocaleTimeString("fr-FR", {
     hour: "2-digit",
     minute: "2-digit",
-    timeZone: TIME_ZONE,
+    timeZone,
   });
 }
 
@@ -89,15 +84,18 @@ export default async function CalendarPage({
   const workspace = ctx.active.workspace;
   const canManage = ctx.active.role === "owner" || ctx.active.role === "admin";
 
+  // Le fuseau du WORKSPACE, pas celui du serveur ni du navigateur : c'est la
+  // référence commune de tous les écrans depuis C13.
+  const timeZone = workspace.time_zone;
   const demande = typeof query.mois === "string" ? query.mois : undefined;
-  const mois = isValidMonth(demande) ? demande : moisCourant();
+  const mois = isValidMonth(demande) ? demande : moisCourant(timeZone);
 
   const supabase = await createClient();
   const publications = await listPublicationsForMonth(supabase, workspace.id, mois);
-  const grille = buildMonthGrid(mois, publications, TIME_ZONE);
+  const grille = buildMonthGrid(mois, publications, timeZone);
   const { previous, next } = adjacentMonths(mois);
 
-  const aujourdhui = new Date().toLocaleDateString("en-CA", { timeZone: TIME_ZONE });
+  const aujourdhui = new Date().toLocaleDateString("en-CA", { timeZone });
   const programmees = publications.filter((p) => p.status === "scheduled").length;
 
   return (
@@ -167,6 +165,7 @@ export default async function CalendarPage({
                       entree={entree}
                       workspaceSlug={workspace.slug}
                       canManage={canManage}
+                      timeZone={timeZone}
                     />
                   </li>
                 ))}
@@ -191,16 +190,18 @@ function EntreeCalendrier({
   entree,
   workspaceSlug,
   canManage,
+  timeZone,
 }: {
   entree: CalendarEntry;
   workspaceSlug: string;
   canManage: boolean;
+  timeZone: string;
 }) {
   const contenu = (
     <div className="rounded border border-border bg-surface p-1.5">
       <div className="flex items-center justify-between gap-1">
         <span className="truncate text-[11px] font-medium text-foreground">
-          {heure(entree.occursAt)} · {PLATFORM_LABELS[entree.platform]}
+          {heure(entree.occursAt, timeZone)} · {PLATFORM_LABELS[entree.platform]}
         </span>
         <Badge tone={TONS[entree.status]}>{PUBLICATION_STATUS_LABELS[entree.status]}</Badge>
       </div>

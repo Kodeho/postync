@@ -23,7 +23,7 @@ type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 /** Forme brute renvoyée par PostgREST pour la jointure imbriquée. */
 type MembershipRow = {
   role: string;
-  workspace: { id: string; name: string; slug: string } | null;
+  workspace: { id: string; name: string; slug: string; time_zone: string } | null;
 };
 
 const WORKSPACE_ROLES: readonly WorkspaceRole[] = ["owner", "admin", "member"];
@@ -83,7 +83,7 @@ export async function listMemberships(
 ): Promise<WorkspaceMembership[]> {
   const { data, error } = await supabase
     .from("workspace_members")
-    .select("role, workspace:workspaces(id, name, slug)")
+    .select("role, workspace:workspaces(id, name, slug, time_zone)")
     .eq("user_id", userId)
     .order("created_at", { ascending: true })
     .overrideTypes<MembershipRow[], { merge: false }>();

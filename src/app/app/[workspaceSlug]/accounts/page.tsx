@@ -285,6 +285,7 @@ export default async function AccountsPage({
                               accountLabel={account.display_name ?? PLATFORM_LABELS[key]}
                               disabledReason={publishDisabledReason}
                               media={mediaFor(key)}
+                              timeZone={workspace.time_zone}
                             />
                           ) : null}
                         </li>

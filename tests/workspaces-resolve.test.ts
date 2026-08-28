@@ -15,8 +15,8 @@ import {
 import type { WorkspaceMembership } from "@/types/workspace";
 
 const memberships: WorkspaceMembership[] = [
-  { role: "owner", workspace: { id: "1", name: "Kodeho", slug: "kodeho" } },
-  { role: "member", workspace: { id: "2", name: "Fleet", slug: "fleet" } },
+  { role: "owner", workspace: { id: "1", name: "Kodeho", slug: "kodeho", time_zone: "Europe/Paris" } },
+  { role: "member", workspace: { id: "2", name: "Fleet", slug: "fleet", time_zone: "Europe/Paris" } },
 ];
 
 function form(name: string): FormData {

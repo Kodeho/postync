@@ -5,6 +5,7 @@ import { useActionState, useMemo, useState } from "react";
 import { FormAlert } from "@/components/ui/form-alert";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { TextField } from "@/components/ui/text-field";
+import { instantToWallClock, wallClockToInstant } from "@/lib/time-zone";
 import { publishAction, resumePublicationAction } from "@/server/social/actions";
 import { IDLE_PUBLISH_ACTION } from "@/server/social/action-state";
 
@@ -52,6 +53,7 @@ export function PublishForm({
   accountLabel,
   disabledReason,
   media,
+  timeZone,
 }: {
   workspaceSlug: string;
   platform: string;
@@ -61,6 +63,8 @@ export function PublishForm({
   disabledReason: string | null;
   /** Médias prêts de la bibliothèque, avec leur compatibilité. */
   media: SelectableMedia[];
+  /** Fuseau du workspace : la référence de TOUTES les heures (C13). */
+  timeZone: string;
 }) {
   const [state, action] = useActionState(publishAction, IDLE_PUBLISH_ACTION);
   const [resumeState, resumeAction] = useActionState(resumePublicationAction, IDLE_PUBLISH_ACTION);
@@ -80,15 +84,16 @@ export function PublishForm({
   const [echeanceLocale, setEcheanceLocale] = useState("");
 
   // Le champ `datetime-local` ne porte AUCUN fuseau : « 14:30 » y est une
-  // heure locale. `new Date(valeur)` l'interprète comme telle, et
-  // `toISOString()` produit l'instant UTC correspondant. Sans cette
-  // conversion, une publication programmée partirait décalée du fuseau de
-  // l'utilisateur — deux heures d'erreur en France l'été.
+  // heure murale, et rien d'autre.
+  //
+  // Elle est interprétée dans le fuseau du WORKSPACE, pas dans celui du
+  // navigateur. C'est la correction de C13 : le calendrier affichait déjà en
+  // fuseau de workspace, donc un client hors de France programmait à une heure
+  // et la voyait affichée à une autre.
   const echeanceIso = useMemo(() => {
     if (quand !== "plus-tard" || !echeanceLocale) return "";
-    const date = new Date(echeanceLocale);
-    return Number.isNaN(date.getTime()) ? "" : date.toISOString();
-  }, [quand, echeanceLocale]);
+    return wallClockToInstant(echeanceLocale, timeZone)?.toISOString() ?? "";
+  }, [quand, echeanceLocale, timeZone]);
 
   // Bornes du sélecteur natif, au format attendu par `datetime-local` (heure
   // LOCALE, sans fuseau).
@@ -101,14 +106,10 @@ export function PublishForm({
   const [bornes, setBornes] = useState<{ min: string; max: string } | null>(null);
 
   function choisirProgrammation() {
-    const local = (instant: number) =>
-      new Date(instant - new Date(instant).getTimezoneOffset() * 60_000)
-        .toISOString()
-        .slice(0, 16);
     const maintenant = Date.now();
     setBornes({
-      min: local(maintenant + 6 * 60_000),
-      max: local(maintenant + 364 * 24 * 3600_000),
+      min: instantToWallClock(maintenant + 6 * 60_000, timeZone),
+      max: instantToWallClock(maintenant + 364 * 24 * 3600_000, timeZone),
     });
     setQuand("plus-tard");
   }
@@ -278,8 +279,8 @@ export function PublishForm({
               className="rounded-md border border-border bg-surface px-3 py-2 text-foreground shadow-soft focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring/60"
             />
             <span className="text-xs text-muted">
-              Dans votre fuseau horaire, au moins cinq minutes à l&apos;avance. La publication
-              partira automatiquement, sans que vous ayez à revenir.
+              Heure du workspace ({timeZone.replace(/_/g, " ")}), au moins cinq minutes à
+              l&apos;avance. La publication partira automatiquement, sans que vous ayez à revenir.
             </span>
           </label>
         ) : null}

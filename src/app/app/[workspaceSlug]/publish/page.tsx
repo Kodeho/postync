@@ -117,6 +117,7 @@ export default async function PublishPage({
             accounts={accounts}
             media={media}
             remainingThisMonth={restantes}
+            timeZone={workspace.time_zone}
           />
         ) : (
           <p className="text-sm text-muted">

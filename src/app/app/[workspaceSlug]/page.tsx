@@ -41,8 +41,6 @@ export const metadata: Metadata = {
  * n'apparaît qu'au fond d'un calendrier, la fonction ne tient pas sa promesse.
  */
 
-const TIME_ZONE = "Europe/Paris";
-
 /**
  * Traduction des codes d'échec. Un code inconnu s'affiche tel quel : brut, il
  * reste plus utile qu'un « une erreur est survenue » qui n'apprend rien.
@@ -67,11 +65,11 @@ function instantDeRendu(): number {
   return Date.now();
 }
 
-function heure(iso: string): string {
+function heure(iso: string, timeZone: string): string {
   return new Date(iso).toLocaleString("fr-FR", {
     dateStyle: "medium",
     timeStyle: "short",
-    timeZone: TIME_ZONE,
+    timeZone,
   });
 }
 
@@ -90,10 +88,10 @@ export default async function OverviewPage({ params }: PageProps<"/app/[workspac
     listSocialAccounts(supabase, ctx.active.workspace.id),
   ]);
 
-  const vue = buildOverview(publications, comptes, {
-    now: maintenant,
-    timeZone: TIME_ZONE,
-  });
+  // Le fuseau du WORKSPACE : les compteurs « aujourd'hui » et « ce mois-ci »
+  // n'ont de sens que rapportés à la même référence que le calendrier.
+  const timeZone = ctx.active.workspace.time_zone;
+  const vue = buildOverview(publications, comptes, { now: maintenant, timeZone });
 
   const vierge = publications.length === 0 && comptes.length === 0;
 
@@ -127,7 +125,7 @@ export default async function OverviewPage({ params }: PageProps<"/app/[workspac
           <ul className="mt-3 flex flex-col gap-2">
             {vue.attention.map((item) => (
               <li key={cle(item)}>
-                <LigneAttention item={item} slug={slug} />
+                <LigneAttention item={item} slug={slug} timeZone={timeZone} />
               </li>
             ))}
           </ul>
@@ -174,7 +172,7 @@ export default async function OverviewPage({ params }: PageProps<"/app/[workspac
                   ) : null}
                 </span>
                 <span className="shrink-0 text-xs text-muted">
-                  {heure(occurrenceOf(publication))}
+                  {heure(occurrenceOf(publication), timeZone)}
                 </span>
               </li>
             ))}
@@ -212,7 +210,15 @@ function cle(item: AttentionItem): string {
  * Une ligne « à traiter » dit TROIS choses : ce qui ne va pas, pourquoi, et où
  * cliquer pour y remédier. Sans le troisième, l'alerte n'est qu'un reproche.
  */
-function LigneAttention({ item, slug }: { item: AttentionItem; slug: string }) {
+function LigneAttention({
+  item,
+  slug,
+  timeZone,
+}: {
+  item: AttentionItem;
+  slug: string;
+  timeZone: string;
+}) {
   if (item.kind === "account_unusable") {
     return (
       <div className="flex items-start justify-between gap-3 rounded-md border border-border bg-surface p-2.5 text-sm">
@@ -248,7 +254,7 @@ function LigneAttention({ item, slug }: { item: AttentionItem; slug: string }) {
           publication non parue
         </span>
         <span className="block truncate text-xs text-muted">
-          {heure(item.occurredAt)}
+          {heure(item.occurredAt, timeZone)}
           {item.caption ? ` · ${item.caption}` : ""}
         </span>
         {item.detail ? (

@@ -4,6 +4,7 @@ import { useActionState, useState } from "react";
 
 import { FormAlert } from "@/components/ui/form-alert";
 import { SubmitButton } from "@/components/ui/submit-button";
+import { instantToWallClock, wallClockToInstant } from "@/lib/time-zone";
 import { broadcastAction } from "@/server/social/actions";
 import type { BroadcastTargetOutcome } from "@/server/social/broadcast";
 import { IDLE_BROADCAST_ACTION } from "@/server/social/broadcast-state";
@@ -43,11 +44,14 @@ export function BroadcastForm({
   accounts,
   media,
   remainingThisMonth,
+  timeZone,
 }: {
   workspaceSlug: string;
   accounts: BroadcastAccount[];
   media: BroadcastMedia[];
   remainingThisMonth: number;
+  /** Fuseau du workspace : la référence de TOUTES les heures (C13). */
+  timeZone: string;
 }) {
   const [state, action] = useActionState(broadcastAction, IDLE_BROADCAST_ACTION);
 
@@ -59,25 +63,20 @@ export function BroadcastForm({
 
   const choisi = media.find((m) => m.id === assetId) ?? null;
 
-  // Le champ `datetime-local` ne porte AUCUN fuseau. La conversion en UTC se
-  // fait ici, sinon le serveur devrait deviner — deux heures d'écart en France
-  // l'été.
+  // Le champ `datetime-local` ne porte AUCUN fuseau : l'heure saisie est
+  // interprétée dans celui du WORKSPACE, la même référence que le calendrier.
   const echeanceIso =
-    quand === "plus-tard" && echeanceLocale && !Number.isNaN(new Date(echeanceLocale).getTime())
-      ? new Date(echeanceLocale).toISOString()
+    quand === "plus-tard" && echeanceLocale
+      ? (wallClockToInstant(echeanceLocale, timeZone)?.toISOString() ?? "")
       : "";
 
   function choisirProgrammation() {
     // Dans un gestionnaire d'événement : lire l'heure courante pendant le rendu
     // divergerait entre serveur et navigateur.
-    const local = (instant: number) =>
-      new Date(instant - new Date(instant).getTimezoneOffset() * 60_000)
-        .toISOString()
-        .slice(0, 16);
     const maintenant = Date.now();
     setBornes({
-      min: local(maintenant + 6 * 60_000),
-      max: local(maintenant + 364 * 24 * 3600_000),
+      min: instantToWallClock(maintenant + 6 * 60_000, timeZone),
+      max: instantToWallClock(maintenant + 364 * 24 * 3600_000, timeZone),
     });
     setQuand("plus-tard");
   }
@@ -229,7 +228,8 @@ export function BroadcastForm({
             className="rounded-md border border-border bg-surface px-3 py-2 text-foreground shadow-soft focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring/60"
           />
           <span className="text-xs text-muted">
-            Dans votre fuseau horaire, au moins cinq minutes à l&apos;avance.
+            Heure du workspace ({timeZone.replace(/_/g, " ")}), au moins cinq minutes à
+            l&apos;avance.
           </span>
         </label>
       ) : null}

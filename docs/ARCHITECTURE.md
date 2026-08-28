@@ -192,6 +192,31 @@ publique et irrattrapable. Le statut `pending` est celui qui existait déjà pou
 « en cours, reprenable » : le mécanisme de reprise de C8.4b s'applique sans
 code nouveau. `attempts` borne les reprises.
 
+### Réglages et fuseau horaire (C13)
+
+L'écran Paramètres était en LECTURE SEULE : un client ne pouvait ni corriger
+une faute dans le nom de son workspace, ni changer son nom affiché. La base
+l'autorisait pourtant déjà (`workspaces_update_owner_admin`,
+`profiles_update_own`) — seules l'interface et les actions manquaient.
+
+Ces actions écrivent SOUS LA SESSION de l'utilisateur, pas en service_role :
+c'est la base qui tranche. Le privilège de colonne accorde à `authenticated`
+l'UPDATE sur `name` et `time_zone` uniquement — jamais `slug` (les URL et les
+redirect_uri OAuth ne bougent pas) ni `owner_id`. Le contrôle applicatif du
+rôle vient en plus, pour donner un message utile plutôt qu'un refus muet.
+
+**Anomalie corrigée.** Le fuseau était codé en dur dans deux pages tandis que
+la saisie d'échéance convertissait depuis celui du NAVIGATEUR : un client hors
+de France programmait à une heure et la voyait affichée à une autre. Le fuseau
+appartient désormais au workspace, et sert de référence unique au calendrier, à
+la vue d'ensemble et aux deux formulaires de saisie.
+
+`src/lib/time-zone.ts` porte la conversion, volontairement PARTAGÉE entre
+serveur et navigateur — deux implémentations divergeraient. `wallClockToInstant`
+fait deux passes : à une bascule d'heure d'été, le décalage à l'instant approché
+diffère de celui à l'instant réel, et une seule passe se tromperait d'une heure,
+deux fois par an.
+
 ### Vue d'ensemble (C12)
 
 `src/server/social/overview.ts` construit l'écran d'accueil. Il affichait

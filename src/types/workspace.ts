@@ -11,6 +11,8 @@ export type Workspace = {
   id: string;
   name: string;
   slug: string;
+  /** Fuseau IANA du workspace : affichage et saisie des échéances (C13). */
+  time_zone: string;
   owner_id: string;
   created_at: string;
   updated_at: string;
@@ -26,7 +28,7 @@ export type WorkspaceMember = {
 };
 
 /** Résumé d'un workspace tel qu'exposé à l'interface. */
-export type WorkspaceSummary = Pick<Workspace, "id" | "name" | "slug">;
+export type WorkspaceSummary = Pick<Workspace, "id" | "name" | "slug" | "time_zone">;
 
 /** Appartenance de l'utilisateur courant à un workspace, avec son rôle. */
 export type WorkspaceMembership = {

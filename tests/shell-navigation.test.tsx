@@ -43,9 +43,9 @@ vi.mock("@/features/workspaces/queries", () => ({
 }));
 
 const memberships: WorkspaceMembership[] = [
-  { role: "owner", workspace: { id: "ws-1", name: "Kodeho", slug: "kodeho" } },
-  { role: "admin", workspace: { id: "ws-2", name: "Fleet", slug: "fleet" } },
-  { role: "member", workspace: { id: "ws-3", name: "Automobile", slug: "automobile" } },
+  { role: "owner", workspace: { id: "ws-1", name: "Kodeho", slug: "kodeho", time_zone: "Europe/Paris" } },
+  { role: "admin", workspace: { id: "ws-2", name: "Fleet", slug: "fleet", time_zone: "Europe/Paris" } },
+  { role: "member", workspace: { id: "ws-3", name: "Automobile", slug: "automobile", time_zone: "Europe/Paris" } },
 ];
 
 const ctx: WorkspaceContext = {
