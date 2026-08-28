@@ -16,6 +16,8 @@
  *      différentes ne doivent pas se partager le dernier siège du forfait.
  *   6. Le double clic. Accepter deux fois la même invitation au même instant
  *      ne doit produire qu'une seule adhésion.
+ *   7. Le compte que l'on ne peut plus supprimer. Avoir accepté une invitation
+ *      ne doit jamais empêcher la suppression d'un compte.
  *
  * Les points 4 à 6 sont des courses : elles ne se voient pas en lisant le code
  * séquentiellement, et aucune vérification applicative ne peut les empêcher.
@@ -83,7 +85,12 @@ const USERS = {
 type Key = keyof typeof USERS;
 
 const EMAIL_TARDIF = "postync-c14-late@example.com";
-const TOUS_LES_EMAILS = [...Object.values(USERS).map((u) => u.email), EMAIL_TARDIF];
+const EMAIL_JETABLE = "postync-c14-jetable@example.com";
+const TOUS_LES_EMAILS = [
+  ...Object.values(USERS).map((u) => u.email),
+  EMAIL_TARDIF,
+  EMAIL_JETABLE,
+];
 
 let admin: SupabaseClient;
 const ids: Record<Key, string> = {
@@ -656,6 +663,44 @@ describe.skipIf(!CONFIGURED)("C14 — membres et invitations (base réelle)", ()
       .eq("workspace_id", W1)
       .eq("user_id", ids.owner2);
     expect(count).toBe(1);
+  }, 40_000);
+
+  it("G3 — un compte ayant accepté une invitation reste supprimable", async () => {
+    // ANOMALIE DÉMONTRÉE le 2026-08-28 : `accepted_by` est
+    // `on delete set null`, mais la contrainte posée avec la table exigeait
+    // `accepted_by` non nul dès lors qu'`accepted_at` l'était. La mise à null
+    // entrait donc en collision avec elle, et Supabase refusait la suppression
+    // avec « Database error deleting user ».
+    //
+    // Toute personne ayant un jour rejoint un workspace par invitation
+    // devenait ainsi INSUPPRIMABLE, y compris pour un administrateur.
+    const { data: cree, error: creation } = await admin.auth.admin.createUser({
+      email: "postync-c14-jetable@example.com",
+      password: PASSWORD,
+      email_confirm: true,
+    });
+    if (creation) throw creation;
+
+    const outcome = await inviter(W1, "postync-c14-jetable@example.com", "member", 50);
+    if (!outcome.ok) throw new Error("invitation non créée");
+
+    const client = await connecter("postync-c14-jetable@example.com");
+    expect(await accepter(client, outcome.token)).toBe("accepted");
+
+    // La suppression doit aboutir…
+    const { error } = await admin.auth.admin.deleteUser(cree.user.id);
+    expect(error).toBeNull();
+
+    // …et l'acceptation rester vraie, simplement sans auteur.
+    const { data: trace } = await admin
+      .from("workspace_invitations")
+      .select("accepted_at, accepted_by")
+      .eq("id", outcome.invitationId)
+      .single();
+    expect(trace!.accepted_at).not.toBeNull();
+    expect(trace!.accepted_by).toBeNull();
+
+    await admin.from("workspace_invitations").delete().eq("id", outcome.invitationId);
   }, 40_000);
 
   it("G2 — la liste des membres s'arrête à la frontière du workspace", async () => {

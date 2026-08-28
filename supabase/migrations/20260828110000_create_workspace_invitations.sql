@@ -37,9 +37,12 @@ create table if not exists public.workspace_invitations (
   constraint workspace_invitations_ttl
     check (expires_at > created_at),
 
-  -- Une invitation acceptee sait toujours PAR QUI.
+  -- On ne designe pas un accepteur sans acceptation. L'inverse serait faux :
+  -- `accepted_by` est `on delete set null`, une acceptation dont l'auteur a
+  -- ete supprime reste un fait. Voir la migration ...110500, qui a corrige
+  -- exactement cette erreur.
   constraint workspace_invitations_accepted_shape
-    check (accepted_at is null or accepted_by is not null)
+    check (accepted_by is null or accepted_at is not null)
 );
 
 -- Une seule invitation VIVANTE par adresse et par workspace. L'index partiel
