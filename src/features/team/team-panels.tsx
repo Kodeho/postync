@@ -129,9 +129,14 @@ export function InviteMemberForm({
         <span className="text-xs text-muted">{seatsLeft} siège(s) disponible(s)</span>
       </div>
       {state.error ? <FormAlert tone="error">{state.error}</FormAlert> : null}
-      {state.notice ? <FormAlert tone="notice">{state.notice}</FormAlert> : null}
-      {state.invitationUrl && state.invitationId && liveInvitationIds.includes(state.invitationId) ? (
-        <LienInvitation url={state.invitationUrl} />
+      {/* Le message et le lien vont ensemble : « transmettez ce lien » sans
+          lien ne veut rien dire. Ils disparaissent donc du même coup lorsque
+          l'invitation cesse d'être en attente. */}
+      {state.notice && state.invitationId && liveInvitationIds.includes(state.invitationId) ? (
+        <>
+          <FormAlert tone="notice">{state.notice}</FormAlert>
+          {state.invitationUrl ? <LienInvitation url={state.invitationUrl} /> : null}
+        </>
       ) : null}
     </form>
   );
@@ -282,16 +287,12 @@ export function InvitationRowActions({
         </button>
       </form>
 
-      {resendState.notice ? (
-        <span className="w-full">
-          <FormAlert tone="notice">{resendState.notice}</FormAlert>
-        </span>
-      ) : null}
-      {resendState.invitationUrl &&
+      {resendState.notice &&
       resendState.invitationId &&
       liveInvitationIds.includes(resendState.invitationId) ? (
-        <span className="w-full">
-          <LienInvitation url={resendState.invitationUrl} />
+        <span className="flex w-full flex-col gap-2">
+          <FormAlert tone="notice">{resendState.notice}</FormAlert>
+          {resendState.invitationUrl ? <LienInvitation url={resendState.invitationUrl} /> : null}
         </span>
       ) : null}
       {resendState.error ? (
