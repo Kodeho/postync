@@ -51,6 +51,24 @@ export function getIntegrationStatuses(): IntegrationStatus[] {
       configured: present("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"),
       note: "Connexion des comptes — étape ultérieure.",
     },
+    // Deux lignes plutôt qu'une, parce que les deux moitiés s'obtiennent à des
+    // moments différents : les identifiants Scaleway dès la création de la clé,
+    // l'adresse d'expédition seulement une fois le domaine authentifié. Les
+    // fondre masquerait laquelle des deux manque.
+    {
+      key: "scaleway",
+      label: "Scaleway (accès)",
+      configured: present("SCW_SECRET_KEY", "SCW_PROJECT_ID"),
+      note: "Clé API et projet Transactional Email.",
+    },
+    {
+      key: "email",
+      label: "Envoi de courriels",
+      configured: present("SCW_SECRET_KEY", "SCW_PROJECT_ID", "EMAIL_FROM_ADDRESS"),
+      note:
+        "Actif seulement avec une adresse d'expédition sur un domaine authentifié. " +
+        "Tant qu'il manque, les invitations affichent un lien à copier.",
+    },
   ];
 }
 
