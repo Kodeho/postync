@@ -8,6 +8,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { Panel } from "@/components/ui/panel";
 import { CancelScheduledButton } from "@/features/calendar/cancel-button";
+import { RescheduleButton } from "@/features/calendar/reschedule-button";
 import { getWorkspaceContext } from "@/features/workspaces/context";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -213,7 +214,15 @@ function EntreeCalendrier({
         <p className="truncate text-[11px] text-danger">{entree.status_detail}</p>
       ) : null}
       {entree.status === "scheduled" && canManage ? (
-        <CancelScheduledButton workspaceSlug={workspaceSlug} publicationId={entree.id} />
+        <div className="flex flex-col gap-1">
+          <RescheduleButton
+            workspaceSlug={workspaceSlug}
+            publicationId={entree.id}
+            currentIso={entree.occursAt}
+            timeZone={timeZone}
+          />
+          <CancelScheduledButton workspaceSlug={workspaceSlug} publicationId={entree.id} />
+        </div>
       ) : null}
     </div>
   );

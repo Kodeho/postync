@@ -21,6 +21,7 @@ import {
 } from "./publish";
 import {
   cancelScheduledPublication,
+  reschedulePublication,
   schedulePublication,
   type ScheduleFailureCode,
 } from "./schedule";
@@ -450,6 +451,21 @@ export async function broadcastAction(
 }
 
 /**
+ * Messages de refus du déplacement d'échéance.
+ *
+ * Chacun dit ce qui bloque ET ce qui est possible : « trop tôt » sans le délai
+ * minimal laisse deviner, et l'utilisateur retente au hasard.
+ */
+const RESCHEDULE_ERRORS: Record<string, string> = {
+  not_found: "Publication introuvable.",
+  already_started:
+    "Cette publication est déjà partie vers la plateforme : son échéance ne peut plus être modifiée.",
+  schedule_invalid: "Cette date n'est pas valide.",
+  schedule_too_soon: "Choisissez une échéance située dans au moins cinq minutes.",
+  schedule_too_far: "L'échéance ne peut pas dépasser un an.",
+};
+
+/**
  * Annule une publication encore programmée.
  *
  * Une publication DÉJÀ réclamée par le planificateur est peut-être en route
@@ -485,6 +501,48 @@ export async function cancelScheduledPublicationAction(
           ? "Publication introuvable."
           : "Cette publication est déjà partie vers la plateforme : elle ne peut plus être annulée.",
     };
+  }
+  return { error: null };
+}
+
+
+/**
+ * Déplace l'échéance d'une publication encore programmée.
+ *
+ * Le refus opposé à une publication déjà réclamée par le planificateur est le
+ * MÊME qu'à l'annulation, et pour la même raison : elle est peut-être déjà en
+ * route chez la plateforme. Déplacer son échéance ne la rappellerait pas, cela
+ * ferait seulement mentir le calendrier.
+ */
+export async function reschedulePublicationAction(
+  _prev: SocialActionState,
+  formData: FormData,
+): Promise<SocialActionState> {
+  const auth = await requireSocialManager(formData);
+  if (!auth.ok) {
+    return { error: auth.error };
+  }
+  const publicationId = String(formData.get("publicationId") ?? "");
+  if (!UUID.test(publicationId)) {
+    return { error: "Publication invalide." };
+  }
+
+  const scheduledAt = String(formData.get("scheduledAt") ?? "");
+  if (scheduledAt.length === 0) {
+    return { error: "Choisissez une nouvelle date." };
+  }
+
+  const result = await reschedulePublication(createServiceClient(), {
+    workspaceId: auth.membership.workspace.id,
+    publicationId,
+    scheduledAt,
+  });
+
+  revalidatePath(`/app/${auth.membership.workspace.slug}/calendar`);
+  revalidatePath(`/app/${auth.membership.workspace.slug}`);
+
+  if (!result.ok) {
+    return { error: RESCHEDULE_ERRORS[result.code] ?? "La date n'a pas pu être modifiée." };
   }
   return { error: null };
 }

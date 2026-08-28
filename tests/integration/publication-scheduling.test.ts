@@ -23,6 +23,7 @@ import type { PublishDeps } from "@/server/social/publish";
 import {
   MIN_LEAD_TIME_MS,
   cancelScheduledPublication,
+  reschedulePublication,
   schedulePublication,
   validateScheduledAt,
 } from "@/server/social/schedule";
@@ -506,6 +507,160 @@ describe.skipIf(!CONFIGURED)("C10.1 — planification", () => {
       .eq("id", result.publicationId)
       .single();
     expect(row!.status).toBe("scheduled");
+    await purge();
+  }, 60_000);
+  // -------------------------------------------------------------------------
+  // Déplacement d'échéance
+  // -------------------------------------------------------------------------
+
+  it("déplace l'échéance sans rien changer d'autre à la publication", async () => {
+    await purge();
+    const result = await schedulePublication(deps(), {
+      workspaceId,
+      socialAccountId: accountId,
+      requestedBy: ownerId,
+      mediaKind: "reel",
+      mediaUrl: "https://cdn.example.com/deplacee.mp4",
+      caption: "Texte à conserver",
+      scheduledAt: DANS_UNE_HEURE(),
+    });
+    if (!result.ok) throw new Error("planification refusée");
+
+    const { data: avant } = await admin
+      .from("social_publications")
+      .select("caption, media_url, social_account_id, status, scheduled_at")
+      .eq("id", result.publicationId)
+      .single();
+
+    const nouvelle = new Date(Date.now() + 5 * 3600_000).toISOString();
+    const deplacement = await reschedulePublication(admin, {
+      workspaceId,
+      publicationId: result.publicationId,
+      scheduledAt: nouvelle,
+    });
+    expect(deplacement).toEqual({ ok: true, scheduledAt: nouvelle });
+
+    const { data: apres } = await admin
+      .from("social_publications")
+      .select("caption, media_url, social_account_id, status, scheduled_at")
+      .eq("id", result.publicationId)
+      .single();
+
+    // L'échéance bouge…
+    expect(apres!.scheduled_at).not.toBe(avant!.scheduled_at);
+    expect(Date.parse(apres!.scheduled_at)).toBe(Date.parse(nouvelle));
+    // …et RIEN d'autre. C'est tout l'intérêt : sans cela, il faudrait annuler
+    // puis tout ressaisir.
+    expect(apres!.caption).toBe(avant!.caption);
+    expect(apres!.media_url).toBe(avant!.media_url);
+    expect(apres!.social_account_id).toBe(avant!.social_account_id);
+    expect(apres!.status).toBe("scheduled");
+    await purge();
+  }, 60_000);
+
+  it("refuse une échéance trop proche, trop lointaine ou invalide", async () => {
+    await purge();
+    const result = await schedulePublication(deps(), {
+      workspaceId,
+      socialAccountId: accountId,
+      requestedBy: ownerId,
+      mediaKind: "reel",
+      mediaUrl: "https://cdn.example.com/bornes.mp4",
+      caption: null,
+      scheduledAt: DANS_UNE_HEURE(),
+    });
+    if (!result.ok) throw new Error("planification refusée");
+
+    const base = { workspaceId, publicationId: result.publicationId };
+    // Les mêmes bornes qu'à la création : une échéance déplacée dans le passé
+    // ne serait pas plus tenable qu'une échéance créée dans le passé.
+    expect(
+      await reschedulePublication(admin, { ...base, scheduledAt: new Date(Date.now() + 60_000).toISOString() }),
+    ).toEqual({ ok: false, code: "schedule_too_soon" });
+    expect(
+      await reschedulePublication(admin, {
+        ...base,
+        scheduledAt: new Date(Date.now() + 400 * 24 * 3600_000).toISOString(),
+      }),
+    ).toEqual({ ok: false, code: "schedule_too_far" });
+    expect(
+      await reschedulePublication(admin, { ...base, scheduledAt: "pas-une-date" }),
+    ).toEqual({ ok: false, code: "schedule_invalid" });
+
+    // L'échéance d'origine est intacte après ces trois refus.
+    const { data: row } = await admin
+      .from("social_publications")
+      .select("status")
+      .eq("id", result.publicationId)
+      .single();
+    expect(row!.status).toBe("scheduled");
+    await purge();
+  }, 60_000);
+
+  it("refuse de déplacer une publication déjà réclamée par le planificateur", async () => {
+    await purge();
+    const result = await schedulePublication(deps(), {
+      workspaceId,
+      socialAccountId: accountId,
+      requestedBy: ownerId,
+      mediaKind: "reel",
+      mediaUrl: "https://cdn.example.com/reclamee.mp4",
+      caption: null,
+      scheduledAt: DANS_UNE_HEURE(),
+    });
+    if (!result.ok) throw new Error("planification refusée");
+
+    // Le planificateur l'a prise en charge : elle est peut-être déjà partie
+    // chez la plateforme. Déplacer son échéance ne la rappellerait pas, cela
+    // ferait seulement mentir le calendrier.
+    await admin
+      .from("social_publications")
+      .update({ status: "pending" })
+      .eq("id", result.publicationId);
+
+    expect(
+      await reschedulePublication(admin, {
+        workspaceId,
+        publicationId: result.publicationId,
+        scheduledAt: new Date(Date.now() + 5 * 3600_000).toISOString(),
+      }),
+    ).toEqual({ ok: false, code: "already_started" });
+    await purge();
+  }, 60_000);
+
+  it("un autre workspace ne peut pas déplacer la publication d'autrui", async () => {
+    await purge();
+    const result = await schedulePublication(deps(), {
+      workspaceId,
+      socialAccountId: accountId,
+      requestedBy: ownerId,
+      mediaKind: "reel",
+      mediaUrl: "https://cdn.example.com/isolee-deplacement.mp4",
+      caption: null,
+      scheduledAt: DANS_UNE_HEURE(),
+    });
+    if (!result.ok) throw new Error("planification refusée");
+
+    const avant = await admin
+      .from("social_publications")
+      .select("scheduled_at")
+      .eq("id", result.publicationId)
+      .single();
+
+    expect(
+      await reschedulePublication(admin, {
+        workspaceId: randomUUID(),
+        publicationId: result.publicationId,
+        scheduledAt: new Date(Date.now() + 5 * 3600_000).toISOString(),
+      }),
+    ).toEqual({ ok: false, code: "not_found" });
+
+    const apres = await admin
+      .from("social_publications")
+      .select("scheduled_at")
+      .eq("id", result.publicationId)
+      .single();
+    expect(apres.data!.scheduled_at).toBe(avant.data!.scheduled_at);
     await purge();
   }, 60_000);
 });

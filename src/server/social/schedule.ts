@@ -275,6 +275,71 @@ export async function cancelScheduledPublication(
   return { ok: true };
 }
 
+
+/**
+ * Déplace l'échéance d'une publication encore programmée.
+ *
+ * POURQUOI CETTE FONCTION EXISTE. Sans elle, changer l'heure d'une publication
+ * imposait de l'annuler puis de tout ressaisir — média, texte, compte cible —
+ * alors que rien de tout cela ne change. C'est le genre de détour qui pousse à
+ * ne plus programmer du tout.
+ *
+ * LES MÊMES GARDES QU'À LA CRÉATION, et pour les mêmes raisons. La nouvelle
+ * échéance repasse par `validateScheduledAt` : une publication déplacée dans
+ * le passé, ou dans deux ans, ne serait pas plus tenable qu'à la création.
+ *
+ * ET LE MÊME REFUS QU'À L'ANNULATION. Une publication déjà réclamée par le
+ * planificateur (`pending`) est peut-être en route chez la plateforme :
+ * déplacer son échéance ne la rappellerait pas, cela ferait seulement mentir
+ * le calendrier. La condition sur le statut est donc REPRISE dans l'écriture —
+ * entre la lecture et la mise à jour, le planificateur a pu réclamer la ligne.
+ */
+export async function reschedulePublication(
+  db: SupabaseClient,
+  input: {
+    workspaceId: string;
+    publicationId: string;
+    scheduledAt: string;
+    now?: () => number;
+  },
+): Promise<
+  | { ok: true; scheduledAt: string }
+  | { ok: false; code: "not_found" | "already_started" | ScheduleFailureCode }
+> {
+  const maintenant = (input.now ?? Date.now)();
+
+  const echeance = validateScheduledAt(input.scheduledAt, maintenant);
+  if (!echeance.ok) {
+    return echeance;
+  }
+
+  const { data: existing } = await db
+    .from("social_publications")
+    .select("id, status")
+    .eq("id", input.publicationId)
+    .eq("workspace_id", input.workspaceId)
+    .maybeSingle<{ id: string; status: string }>();
+  if (!existing) {
+    return { ok: false, code: "not_found" };
+  }
+  if (existing.status !== "scheduled") {
+    return { ok: false, code: "already_started" };
+  }
+
+  const { data: updated } = await db
+    .from("social_publications")
+    .update({ scheduled_at: echeance.iso })
+    .eq("id", input.publicationId)
+    .eq("workspace_id", input.workspaceId)
+    .eq("status", "scheduled")
+    .select("id");
+
+  if (!updated || updated.length === 0) {
+    return { ok: false, code: "already_started" };
+  }
+  return { ok: true, scheduledAt: echeance.iso };
+}
+
 /** Scopes réellement accordés au compte, et non ceux demandés à l'origine. */
 function hasRequiredScopes(required: readonly string[], granted: string[] | null): boolean {
   const accordes = new Set(granted ?? []);
