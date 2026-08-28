@@ -15,6 +15,7 @@ import {
   PUBLISHER,
   SOCIAL_RECIPIENTS,
   SUBPROCESSORS,
+  VAT_NOTICE,
   missingLegalFields,
   type Publisher,
 } from "@/config/legal";
@@ -49,6 +50,21 @@ describe("mentions obligatoires", () => {
     // le garde-fou : une régression sur `PUBLISHER` remettrait un
     // avertissement « document incomplet » en ligne, visible de tous.
     expect(missingLegalFields()).toEqual([]);
+  });
+
+  it("TVA : la mention et le numéro ne se contredisent JAMAIS", () => {
+    // Deux états cohérents, et deux seulement :
+    //   * franchise en base -> pas de numéro, mais la mention obligatoire ;
+    //   * assujetti          -> un numéro, et pas de mention de franchise.
+    // Afficher les deux, ou aucun des deux, serait une faute sur un document
+    // commercial.
+    const franchise = VAT_NOTICE !== null;
+    const assujetti = PUBLISHER.vatNumber !== null;
+    expect(franchise).not.toBe(assujetti);
+
+    if (franchise) {
+      expect(VAT_NOTICE).toMatch(/293\s*B/);
+    }
   });
 
   it("l'adresse de contact est toujours renseignée — c'est le point d'entrée RGPD", () => {

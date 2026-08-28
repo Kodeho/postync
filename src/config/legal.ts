@@ -13,7 +13,16 @@
  */
 
 /** Date de dernière mise à jour affichée sur les documents. */
-export const LEGAL_LAST_UPDATED = "2026-08-27";
+export const LEGAL_LAST_UPDATED = "2026-08-28";
+
+/**
+ * Mention obligatoire accompagnant les prix quand l'éditeur relève de la
+ * franchise en base de TVA : il ne la facture pas, et doit le dire.
+ *
+ * Vaut `null` s'il devient assujetti — les prix s'afficheront alors avec la
+ * mention TTC habituelle, et `PUBLISHER.vatNumber` devra être renseigné.
+ */
+export const VAT_NOTICE: string | null = "TVA non applicable, article 293 B du CGI";
 
 export type Publisher = {
   /** Dénomination commerciale du service. */
@@ -45,9 +54,10 @@ export const PUBLISHER: Publisher = {
   shareCapital: null,
   address: "35 rue de Les Coves, 66000 Perpignan, France",
   registration: "535 194 799 R.C.S. Perpignan",
-  // Nul tant que l'assujettissement n'est pas confirmé. Une micro-entreprise
-  // sous les seuils relève de la franchise en base (art. 293 B du CGI) et ne
-  // facture pas de TVA : afficher un numéro inexact serait une faute.
+  // L'éditeur n'est PAS assujetti : franchise en base (art. 293 B du CGI).
+  // Le champ reste donc nul, et `VAT_NOTICE` porte la mention qui doit
+  // accompagner les prix — l'omettre serait un manquement, inventer un numéro
+  // en serait un autre.
   vatNumber: null,
   publicationDirector: "Ludovic Piraino",
   contactEmail: "contact@kodeho.com",

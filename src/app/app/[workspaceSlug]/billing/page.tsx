@@ -4,6 +4,7 @@ import { connection } from "next/server";
 import { Badge } from "@/components/admin/badges";
 import { FormAlert } from "@/components/ui/form-alert";
 import { PageHeader } from "@/components/ui/page-header";
+import { VAT_NOTICE } from "@/config/legal";
 import { Panel } from "@/components/ui/panel";
 import {
   PLANS,
@@ -130,6 +131,10 @@ export default async function BillingPage({
           <h2 id="billing-plans" className="text-base font-semibold text-foreground">
             Changer de plan
           </h2>
+          {/* Mention obligatoire tant que l'éditeur relève de la franchise en
+              base : les prix affichés ne comportent pas de TVA, et le dire
+              n'est pas facultatif. */}
+          {VAT_NOTICE ? <p className="text-xs text-muted">{VAT_NOTICE}.</p> : null}
           <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {PLANS.map((plan) => {
               const isCurrent = access.source !== "free" ? plan.key === access.planKey : plan.key === "free";

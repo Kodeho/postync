@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 import { LegalPage, LegalSection } from "@/components/layout/legal-page";
 import { PRODUCT_NAME } from "@/config/product";
-import { PUBLISHER } from "@/config/legal";
+import { PUBLISHER, VAT_NOTICE } from "@/config/legal";
 import { PLANS, formatPlanPrice } from "@/config/plans";
 
 /**
@@ -111,7 +111,10 @@ export default function TermsPage() {
             {gratuit.quotas.storageGb} Go de stockage.
           </p>
         ) : null}
-        <p>Les offres payantes, en euros et toutes taxes comprises le cas échéant :</p>
+        <p>
+          Les offres payantes, en euros
+          {VAT_NOTICE ? <> — {VAT_NOTICE.toLowerCase()}</> : ", toutes taxes comprises"} :
+        </p>
         <ul className="list-disc pl-5">
           {payants.map((plan) => (
             <li key={plan.key}>
