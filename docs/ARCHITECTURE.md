@@ -192,6 +192,36 @@ publique et irrattrapable. Le statut `pending` est celui qui existait déjà pou
 « en cours, reprenable » : le mécanisme de reprise de C8.4b s'applique sans
 code nouveau. `attempts` borne les reprises.
 
+### Publication multi-réseaux (C11)
+
+`src/server/social/broadcast.ts` tient enfin la promesse du produit : un média,
+plusieurs réseaux, une seule demande. Il n'écrit rien de neuf — il ORCHESTRE
+`publishToSocialAccount` et `schedulePublication`, validés en C8 et C10.
+
+Trois principes, dictés par ce qui peut mal tourner :
+
+* **Le quota est vérifié pour le LOT entier, avant tout envoi.** Un utilisateur
+  à qui il reste deux publications et qui en demande trois n'en verrait
+  autrement partir que deux, avant de récolter un échec — deux contenus
+  publiés qu'il n'avait pas choisi de dissocier.
+* **Un échec partiel reste un échec partiel.** Le résultat est rendu réseau par
+  réseau, jamais agrégé en un verdict unique : prétendre à la réussite ferait
+  croire que le contenu est en ligne partout.
+* **Chaque réseau est indépendant.** Un refus d'Instagram n'empêche pas
+  Facebook de partir ; chaque cible a ses propres contrôles.
+
+Les envois sont SÉQUENTIELS : en parallèle, les contrôles de quota internes
+liraient tous le même compteur d'avant l'envoi et laisseraient passer plus de
+publications que le plan n'en autorise.
+
+Le budget d'attente par réseau est court (12 s) : ce qui n'aboutit pas reste
+`pending` avec son conteneur, et le planificateur de C10.2 le reprend — le
+média n'est jamais renvoyé.
+
+La compatibilité est calculée CÔTÉ SERVEUR et le navigateur ne reçoit qu'un
+verdict et son explication. Les règles diffèrent nettement d'un réseau à
+l'autre ; les dupliquer côté client garantirait qu'elles divergent.
+
 ### Calendrier et saisie d'une échéance (C10.3)
 
 Le formulaire de publication propose « Maintenant » ou « Programmer ». Le

@@ -24,6 +24,9 @@ import {
   schedulePublication,
   type ScheduleFailureCode,
 } from "./schedule";
+import { broadcastPublication, MAX_TARGETS } from "./broadcast";
+import type { BroadcastActionState } from "./broadcast-state";
+import { countPublicationsThisMonth } from "./queries";
 import type { PublishMediaKind } from "./providers/types";
 import { createOAuthState } from "./oauth-state";
 import { getProvider } from "./providers";
@@ -248,6 +251,26 @@ const SCHEDULE_ERRORS: Record<ScheduleFailureCode, string> = {
   schedule_too_far: "L'échéance ne peut pas dépasser un an.",
 };
 
+/**
+ * Refus portant sur le LOT entier — aucun réseau n'a été touché. Le message
+ * du quota annonce ce qu'il reste : « impossible » sans chiffre laisserait
+ * l'utilisateur deviner combien de réseaux retirer.
+ */
+const BROADCAST_ERRORS: Record<
+  "no_target" | "too_many_targets" | "quota_exceeded" | "schedule_invalid",
+  (remaining: number) => string
+> = {
+  no_target: () => "Choisissez au moins un compte sur lequel publier.",
+  too_many_targets: () => `Pas plus de ${MAX_TARGETS} comptes à la fois.`,
+  quota_exceeded: (restantes) =>
+    restantes === 0
+      ? "Limite de publications du plan atteinte pour ce mois-ci. Passez à un plan supérieur."
+      : `Il ne reste que ${restantes} publication(s) sur votre plan ce mois-ci : retirez des comptes ou passez à un plan supérieur.`,
+  schedule_invalid:
+    () =>
+      "Échéance invalide : programmez au moins cinq minutes à l'avance, et à moins d'un an.",
+};
+
 const MEDIA_KINDS: readonly PublishMediaKind[] = ["reel", "image"];
 
 function isMediaKind(value: string): value is PublishMediaKind {
@@ -361,6 +384,69 @@ export async function publishAction(
     publicationId: outcome.publicationId,
     scheduledAt: null,
   };
+}
+
+/**
+ * Diffuse un média vers PLUSIEURS réseaux en une seule demande (C11).
+ *
+ * Le navigateur n'envoie que des identifiants : workspace, média, comptes.
+ * Tout est revérifié côté serveur — rôle, appartenance de chaque compte au
+ * workspace, scopes réellement accordés, compatibilité du média avec CE
+ * réseau, quota du plan pour le lot entier.
+ */
+export async function broadcastAction(
+  _prev: BroadcastActionState,
+  formData: FormData,
+): Promise<BroadcastActionState> {
+  const auth = await requireSocialManager(formData);
+  if (!auth.ok) {
+    return { error: auth.error, results: null };
+  }
+
+  const mediaAssetId = String(formData.get("mediaAssetId") ?? "");
+  if (!UUID.test(mediaAssetId)) {
+    return { error: "Choisissez un média de la médiathèque.", results: null };
+  }
+  const mediaKindRaw = String(formData.get("mediaKind") ?? "reel");
+  if (!isMediaKind(mediaKindRaw)) {
+    return { error: "Type de média invalide.", results: null };
+  }
+  // `getAll` : les cases cochées arrivent sous la même clé.
+  const socialAccountIds = formData
+    .getAll("socialAccountIds")
+    .map(String)
+    .filter((value) => UUID.test(value));
+
+  const caption = String(formData.get("caption") ?? "").trim();
+  const scheduledAt = String(formData.get("scheduledAt") ?? "").trim();
+
+  const { supabase, user } = await requireUser();
+  const outcome = await broadcastPublication(
+    {
+      ...publishDeps(supabase),
+      countUsedThisMonth: (workspaceId, month) =>
+        countPublicationsThisMonth(createServiceClient(), workspaceId, month),
+    },
+    {
+      workspaceId: auth.membership.workspace.id,
+      requestedBy: user.id,
+      mediaKind: mediaKindRaw,
+      mediaAssetId,
+      caption: caption.length > 0 ? caption : null,
+      socialAccountIds,
+      scheduledAt: scheduledAt.length > 0 ? scheduledAt : null,
+      shareToFeed: formData.get("shareToFeed") === "on",
+    },
+  );
+
+  revalidatePath(`/app/${auth.membership.workspace.slug}/publish`);
+  revalidatePath(`/app/${auth.membership.workspace.slug}/calendar`);
+  revalidatePath(`/app/${auth.membership.workspace.slug}/accounts`);
+
+  if (!outcome.ok) {
+    return { error: BROADCAST_ERRORS[outcome.code](outcome.remaining ?? 0), results: null };
+  }
+  return { error: null, results: outcome.results };
 }
 
 /**
