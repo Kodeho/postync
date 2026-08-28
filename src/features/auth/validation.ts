@@ -23,6 +23,10 @@ export type LoginInput = {
   password: string;
 };
 
+export type NewPasswordInput = {
+  password: string;
+};
+
 function normalizeEmail(raw: string): string {
   return raw.trim().toLowerCase();
 }
@@ -74,6 +78,45 @@ export function validateSignup(form: FormData): Validated<SignupInput> {
   }
 
   return { ok: true, value: { displayName, email, password } };
+}
+
+/**
+ * Adresse saisie pour demander une réinitialisation.
+ *
+ * La validation s'arrête à la FORME. Elle ne dit jamais si l'adresse existe :
+ * ce formulaire est public, et répondre « compte inconnu » en ferait un
+ * oracle permettant d'énumérer la clientèle de POSTYNC.
+ */
+export function validateEmailOnly(form: FormData): Validated<string> {
+  const email = normalizeEmail(String(form.get("email") ?? ""));
+  if (!EMAIL_PATTERN.test(email)) {
+    return { ok: false, error: "Veuillez saisir une adresse e-mail valide." };
+  }
+  return { ok: true, value: email };
+}
+
+/**
+ * Nouveau mot de passe et sa confirmation.
+ *
+ * Mêmes règles qu'à l'inscription : une exigence plus faible ici ouvrirait
+ * simplement une seconde porte, plus basse, sur le même compte.
+ */
+export function validateNewPassword(form: FormData): Validated<NewPasswordInput> {
+  const password = String(form.get("password") ?? "");
+  const confirmPassword = String(form.get("confirmPassword") ?? "");
+
+  if (password.length < PASSWORD_MIN_LENGTH) {
+    return {
+      ok: false,
+      error: `Le mot de passe doit contenir au moins ${PASSWORD_MIN_LENGTH} caractères.`,
+    };
+  }
+
+  if (password !== confirmPassword) {
+    return { ok: false, error: "Les deux mots de passe ne sont pas identiques." };
+  }
+
+  return { ok: true, value: { password } };
 }
 
 export function validateLogin(form: FormData): Validated<LoginInput> {

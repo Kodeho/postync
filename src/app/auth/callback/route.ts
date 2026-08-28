@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
+import { safeReturnPath } from "@/lib/return-path";
 
 /**
  * Types d'OTP e-mail acceptés.
@@ -26,20 +27,6 @@ function isEmailOtpType(value: string | null): value is EmailOtpType {
 }
 
 /**
- * Valide la destination de redirection.
- *
- * Sans ce filtre, `?next=https://exemple-malveillant.test` transformerait la
- * route de confirmation en redirection ouverte. Seuls les chemins internes
- * simples sont acceptés (`//host` est un chemin protocol-relative, donc rejeté).
- */
-function safeNext(raw: string | null): string {
-  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) {
-    return "/app";
-  }
-  return raw;
-}
-
-/**
  * Callback de confirmation d'adresse e-mail Supabase.
  *
  * Prend en charge les deux formats de lien émis par Supabase :
@@ -51,10 +38,30 @@ function safeNext(raw: string | null): string {
  */
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
-  const next = safeNext(searchParams.get("next"));
+
+  // DESTINATION DE RETOUR. Elle arrive par l'URL, donc depuis un courriel :
+  // c'est exactement la situation d'une redirection ouverte. Sans filtre,
+  // `?next=https://exemple-malveillant.test` renverrait la personne sur un
+  // site tiers juste après l'ouverture de sa session — le moment idéal pour
+  // lui présenter une fausse page de connexion.
+  //
+  // `safeReturnPath` est la MÊME règle que celle appliquée à la connexion et
+  // à l'inscription (C14). Cette route avait sa propre version, plus faible :
+  // elle laissait passer `/\exemple.com`, que certains navigateurs
+  // interprètent comme `//`, ainsi que les caractères de contrôle. Deux
+  // logiques pour un même risque, c'est une de trop — et c'est toujours la
+  // plus faible qui décide.
+  const next = safeReturnPath(searchParams.get("next"));
+
+  // Le message d'echec depend de ce qui a ete tente : « votre inscription n'a
+  // pas pu etre confirmee » n'a aucun sens pour quelqu'un qui reinitialise son
+  // mot de passe, et le laisse sans la seule action utile.
+  const estRecuperation =
+    searchParams.get("type") === "recovery" ||
+    (searchParams.get("next") ?? "").startsWith("/reset-password");
 
   const failureUrl = new URL("/login", origin);
-  failureUrl.searchParams.set("error", "confirmation");
+  failureUrl.searchParams.set("error", estRecuperation ? "recovery" : "confirmation");
 
   if (!isSupabaseConfigured()) {
     return NextResponse.redirect(failureUrl);

@@ -15,6 +15,11 @@ export const metadata: Metadata = {
 const CALLBACK_ERRORS: Record<string, string> = {
   confirmation:
     "Ce lien de confirmation est invalide ou a expiré. Demandez-en un nouveau en vous inscrivant à nouveau.",
+  // Le second cas est le plus frequent, et le moins devinable : le lien porte
+  // un verificateur depose dans le navigateur QUI A FAIT LA DEMANDE. L'ouvrir
+  // depuis le webmail d'un telephone echoue, sans que rien ne soit casse.
+  recovery:
+    "Ce lien de réinitialisation est invalide, a expiré, ou a été ouvert depuis un autre navigateur que celui qui l'a demandé. Demandez-en un nouveau et ouvrez-le depuis le même navigateur.",
 };
 
 export default async function LoginPage({ searchParams }: PageProps<"/login">) {

@@ -9,10 +9,13 @@ import { safeReturnPath } from "@/lib/return-path";
 import { getSiteOrigin } from "@/lib/site-url";
 
 import { toUserMessage } from "./errors";
+import { shouldDiscloseResetError } from "./reset-disclosure";
 import type { AuthFormState, SignupPreservedValues } from "./state";
 import {
   extractSignupPreservedValues,
+  validateEmailOnly,
   validateLogin,
+  validateNewPassword,
   validateSignup,
 } from "./validation";
 
@@ -142,6 +145,129 @@ export async function signInAction(
 
   revalidatePath("/", "layout");
   redirect(safeReturnPath(String(formData.get("next") ?? "")));
+}
+
+
+// ---------------------------------------------------------------------------
+// Réinitialisation de mot de passe (C15)
+// ---------------------------------------------------------------------------
+
+/**
+ * Réponse unique de la demande de réinitialisation.
+ *
+ * LE MÊME MESSAGE DANS TOUS LES CAS, y compris lorsque l'adresse n'existe
+ * pas. Ce formulaire est public : répondre « compte inconnu » le
+ * transformerait en oracle permettant de savoir, adresse par adresse, qui est
+ * client de POSTYNC. La formulation est donc volontairement au conditionnel —
+ * elle ne promet pas qu'un e-mail est parti.
+ */
+const RESET_REQUESTED_NOTICE =
+  "Si un compte existe pour cette adresse, un lien de réinitialisation vient d'être envoyé. Ouvrez-le depuis CE navigateur, sinon le lien sera refusé.";
+
+/**
+ * Demande un lien de réinitialisation.
+ *
+ * SUR LE NAVIGATEUR. Supabase émet un lien PKCE dont le vérificateur est
+ * déposé dans un cookie du navigateur qui a fait la demande. Ouvrir le lien
+ * ailleurs — un webmail sur le téléphone, un autre profil — échoue avec
+ * `flow_state_expired`, sans que rien ne soit cassé. Le message le dit
+ * d'avance, plutôt que de laisser l'utilisateur en tirer la conclusion qu'il
+ * n'a pas de compte.
+ */
+export async function requestPasswordResetAction(
+  _prevState: AuthFormState,
+  formData: FormData,
+): Promise<AuthFormState> {
+  if (!isSupabaseConfigured()) {
+    return NOT_CONFIGURED_STATE;
+  }
+
+  const parsed = validateEmailOnly(formData);
+  if (!parsed.ok) {
+    return failure(parsed.error);
+  }
+
+  try {
+    const supabase = await createClient();
+    const origin = await getSiteOrigin();
+
+    const { error } = await supabase.auth.resetPasswordForEmail(parsed.value, {
+      // Le lien ouvre une session, puis atterrit sur le formulaire de
+      // changement. Sans ce `next`, il déposerait la personne dans
+      // l'application sans jamais lui faire choisir un nouveau mot de passe —
+      // un lien de connexion déguisé en lien de réinitialisation.
+      redirectTo: `${origin}/auth/callback?next=/reset-password`,
+    });
+
+    if (error) {
+      // `toUserMessage` journalise dans tous les cas ; seule la limite de
+      // débit est RENVOYÉE. Voir `reset-disclosure.ts` pour le pourquoi.
+      const message = toUserMessage(error, "reset-request");
+      if (shouldDiscloseResetError("code" in error ? error.code : null)) {
+        return failure(message);
+      }
+    }
+  } catch (error) {
+    toUserMessage(error, "reset-request");
+  }
+
+  return { error: null, notice: RESET_REQUESTED_NOTICE };
+}
+
+/**
+ * Enregistre le nouveau mot de passe.
+ *
+ * N'est atteignable qu'avec la session ouverte par le lien de
+ * réinitialisation : `updateUser` échoue sans session, et la page qui porte ce
+ * formulaire refuse déjà de s'afficher sans elle.
+ *
+ * LES AUTRES SESSIONS SONT REVOQUEES. Quelqu'un qui réinitialise son mot de
+ * passe le fait souvent parce qu'il soupçonne un accès indésirable ; laisser
+ * vivre les sessions déjà ouvertes annulerait tout le bénéfice de
+ * l'opération.
+ */
+export async function updatePasswordAction(
+  _prevState: AuthFormState,
+  formData: FormData,
+): Promise<AuthFormState> {
+  if (!isSupabaseConfigured()) {
+    return NOT_CONFIGURED_STATE;
+  }
+
+  const parsed = validateNewPassword(formData);
+  if (!parsed.ok) {
+    return failure(parsed.error);
+  }
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return failure(
+        "Votre lien de réinitialisation a expiré. Demandez-en un nouveau.",
+      );
+    }
+
+    const { error } = await supabase.auth.updateUser({ password: parsed.value.password });
+    if (error) {
+      return failure(toUserMessage(error, "reset-update"));
+    }
+
+    // Révocation des autres sessions. Un échec ici ne doit pas faire croire
+    // que le changement a échoué : le mot de passe, lui, est bien changé.
+    const { error: signOutError } = await supabase.auth.signOut({ scope: "others" });
+    if (signOutError) {
+      toUserMessage(signOutError, "reset-signout-others");
+    }
+  } catch (error) {
+    return failure(toUserMessage(error, "reset-update"));
+  }
+
+  revalidatePath("/", "layout");
+  redirect("/app");
 }
 
 /**

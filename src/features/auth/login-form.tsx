@@ -34,6 +34,15 @@ export function LoginForm({ next }: { next?: string }) {
       <SubmitButton label="Se connecter" pendingLabel="Connexion…" />
 
       <p className="text-sm text-muted">
+        <Link
+          href="/forgot-password"
+          className="font-medium text-primary underline-offset-4 hover:underline"
+        >
+          Mot de passe oublié ?
+        </Link>
+      </p>
+
+      <p className="text-sm text-muted">
         Pas encore de compte ?{" "}
         <Link href={next ? `/signup?next=${encodeURIComponent(next)}` : "/signup"} className="font-medium text-primary underline-offset-4 hover:underline">
           Créer un compte
