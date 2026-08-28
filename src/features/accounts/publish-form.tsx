@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useMemo, useState } from "react";
 
 import { FormAlert } from "@/components/ui/form-alert";
 import { SubmitButton } from "@/components/ui/submit-button";
@@ -73,6 +73,45 @@ export function PublishForm({
     media.find((m) => m.compatible)?.id ?? "",
   );
   const choisi = media.find((m) => m.id === assetId) ?? null;
+
+  // Quand publier. « Maintenant » reste le défaut : programmer est un choix
+  // délibéré, pas un passage obligé.
+  const [quand, setQuand] = useState<"maintenant" | "plus-tard">("maintenant");
+  const [echeanceLocale, setEcheanceLocale] = useState("");
+
+  // Le champ `datetime-local` ne porte AUCUN fuseau : « 14:30 » y est une
+  // heure locale. `new Date(valeur)` l'interprète comme telle, et
+  // `toISOString()` produit l'instant UTC correspondant. Sans cette
+  // conversion, une publication programmée partirait décalée du fuseau de
+  // l'utilisateur — deux heures d'erreur en France l'été.
+  const echeanceIso = useMemo(() => {
+    if (quand !== "plus-tard" || !echeanceLocale) return "";
+    const date = new Date(echeanceLocale);
+    return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+  }, [quand, echeanceLocale]);
+
+  // Bornes du sélecteur natif, au format attendu par `datetime-local` (heure
+  // LOCALE, sans fuseau).
+  //
+  // Calculées au moment où l'utilisateur choisit « Programmer », donc dans un
+  // gestionnaire d'événement : lire l'heure courante pendant le rendu serait
+  // impur et produirait une divergence d'hydratation, le serveur n'ayant ni la
+  // même heure ni le même fuseau. Ce ne sont de toute façon que des garde-fous
+  // de confort — c'est le serveur qui valide l'échéance pour de bon.
+  const [bornes, setBornes] = useState<{ min: string; max: string } | null>(null);
+
+  function choisirProgrammation() {
+    const local = (instant: number) =>
+      new Date(instant - new Date(instant).getTimezoneOffset() * 60_000)
+        .toISOString()
+        .slice(0, 16);
+    const maintenant = Date.now();
+    setBornes({
+      min: local(maintenant + 6 * 60_000),
+      max: local(maintenant + 364 * 24 * 3600_000),
+    });
+    setQuand("plus-tard");
+  }
 
   // La reprise, quand elle a eu lieu, décrit l'état le plus récent.
   const current = resumeState.status || resumeState.error ? resumeState : state;
@@ -200,6 +239,54 @@ export function PublishForm({
           </label>
         ) : null}
 
+        <fieldset className="flex flex-col gap-1.5 text-sm">
+          <legend className="font-medium text-foreground">Quand publier</legend>
+          <div className="flex gap-4">
+            <label className="flex items-center gap-2 text-sm text-foreground">
+              <input
+                type="radio"
+                name="quand"
+                value="maintenant"
+                checked={quand === "maintenant"}
+                onChange={() => setQuand("maintenant")}
+              />
+              Maintenant
+            </label>
+            <label className="flex items-center gap-2 text-sm text-foreground">
+              <input
+                type="radio"
+                name="quand"
+                value="plus-tard"
+                checked={quand === "plus-tard"}
+                onChange={choisirProgrammation}
+              />
+              Programmer
+            </label>
+          </div>
+        </fieldset>
+
+        {quand === "plus-tard" ? (
+          <label className="flex flex-col gap-1.5 text-sm">
+            <span className="font-medium text-foreground">Date et heure</span>
+            <input
+              type="datetime-local"
+              value={echeanceLocale}
+              min={bornes?.min}
+              max={bornes?.max}
+              required
+              onChange={(event) => setEcheanceLocale(event.target.value)}
+              className="rounded-md border border-border bg-surface px-3 py-2 text-foreground shadow-soft focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring/60"
+            />
+            <span className="text-xs text-muted">
+              Dans votre fuseau horaire, au moins cinq minutes à l&apos;avance. La publication
+              partira automatiquement, sans que vous ayez à revenir.
+            </span>
+          </label>
+        ) : null}
+
+        {/* Envoyé en UTC : le serveur ne devine jamais un fuseau. */}
+        <input type="hidden" name="scheduledAt" value={echeanceIso} />
+
         <div className="flex items-center gap-3">
           {source === "library" && (!choisi || !choisi.compatible) ? (
             <button
@@ -211,7 +298,10 @@ export function PublishForm({
               Publier
             </button>
           ) : (
-            <SubmitButton label="Publier" pendingLabel="Publication…" />
+            <SubmitButton
+              label={quand === "plus-tard" ? "Programmer" : "Publier"}
+              pendingLabel={quand === "plus-tard" ? "Enregistrement…" : "Publication…"}
+            />
           )}
           <button
             type="button"
@@ -224,6 +314,17 @@ export function PublishForm({
       </form>
 
       {current.error ? <FormAlert tone="error">{current.error}</FormAlert> : null}
+
+      {current.status === "scheduled" && current.scheduledAt ? (
+        <FormAlert tone="notice">
+          Programmée pour le{" "}
+          {new Date(current.scheduledAt).toLocaleString("fr-FR", {
+            dateStyle: "long",
+            timeStyle: "short",
+          })}
+          . Retrouvez-la dans le calendrier.
+        </FormAlert>
+      ) : null}
 
       {current.status === "published" ? (
         <FormAlert tone="notice">

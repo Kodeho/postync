@@ -95,7 +95,12 @@ export function canConnectMore(currentCount: number, quota: number): boolean {
 // Publications
 // ---------------------------------------------------------------------------
 
-export type SocialPublicationStatus = "pending" | "published" | "failed";
+export type SocialPublicationStatus =
+  | "scheduled"
+  | "pending"
+  | "published"
+  | "failed"
+  | "canceled";
 
 export type SocialPublicationRow = {
   id: string;
@@ -113,12 +118,16 @@ export type SocialPublicationRow = {
   status_detail: string | null;
   created_at: string;
   published_at: string | null;
+  /** Échéance demandée. Null pour une publication immédiate (C10.1). */
+  scheduled_at: string | null;
 };
 
 export const PUBLICATION_STATUS_LABELS: Record<SocialPublicationStatus, string> = {
+  scheduled: "Programmé",
   pending: "En cours",
   published: "Publié",
   failed: "Échec",
+  canceled: "Annulé",
 };
 
 export const MEDIA_KIND_LABELS: Record<"reel" | "image", string> = {

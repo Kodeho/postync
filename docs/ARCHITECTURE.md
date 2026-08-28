@@ -192,6 +192,29 @@ publique et irrattrapable. Le statut `pending` est celui qui existait déjà pou
 « en cours, reprenable » : le mécanisme de reprise de C8.4b s'applique sans
 code nouveau. `attempts` borne les reprises.
 
+### Calendrier et saisie d'une échéance (C10.3)
+
+Le formulaire de publication propose « Maintenant » ou « Programmer ». Le
+champ `datetime-local` ne porte AUCUN fuseau : le navigateur convertit donc
+l'heure saisie en instant UTC avant l'envoi, et le serveur ne devine jamais un
+fuseau. Les bornes du sélecteur sont calculées dans le gestionnaire
+d'événement, pas au rendu — lire l'heure courante pendant le rendu produirait
+une divergence d'hydratation.
+
+`src/server/social/calendar.ts` construit la grille hors de tout composant :
+c'est de l'arithmétique de dates, la partie qui se trompe en silence. Elle est
+pure et testée, notamment sur le point qui compte — une publication programmée
+à 00h30 heure locale porte un instant UTC situé la VEILLE, et la ranger
+d'après l'UTC l'afficherait le mauvais jour, parfois le mauvais mois. Les
+bornes de la requête sont élargies d'un jour de chaque côté pour la même
+raison.
+
+Le mois vient de l'URL (`?mois=AAAA-MM`), ce qui rend la vue partageable ; un
+paramètre invalide retombe sur le mois courant. Une publication encore
+`scheduled` peut être annulée ; dès qu'elle est réclamée, le bouton disparaît
+et le serveur refuserait de toute façon — mieux vaut ne pas proposer une
+action qui échouera.
+
 ### Exécution du planificateur (C10.2)
 
 Le plan Vercel du projet est Hobby, où les crons sont limités à UNE exécution

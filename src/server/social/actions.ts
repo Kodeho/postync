@@ -19,6 +19,11 @@ import {
   resumePublication,
   type PublishFailureCode,
 } from "./publish";
+import {
+  cancelScheduledPublication,
+  schedulePublication,
+  type ScheduleFailureCode,
+} from "./schedule";
 import type { PublishMediaKind } from "./providers/types";
 import { createOAuthState } from "./oauth-state";
 import { getProvider } from "./providers";
@@ -231,6 +236,18 @@ const PUBLISH_ERRORS: Record<PublishFailureCode, string> = {
   provider_error: "La plateforme n'a pas accepté la publication. Réessayez.",
 };
 
+/**
+ * Une planification peut échouer pour les mêmes raisons qu'une publication —
+ * les contrôles sont identiques — plus trois qui lui sont propres.
+ */
+const SCHEDULE_ERRORS: Record<ScheduleFailureCode, string> = {
+  ...PUBLISH_ERRORS,
+  schedule_invalid: "Date de publication invalide.",
+  schedule_too_soon:
+    "Une publication programmée doit l'être au moins cinq minutes à l'avance. Pour partir tout de suite, choisissez « Maintenant ».",
+  schedule_too_far: "L'échéance ne peut pas dépasser un an.",
+};
+
 const MEDIA_KINDS: readonly PublishMediaKind[] = ["reel", "image"];
 
 function isMediaKind(value: string): value is PublishMediaKind {
@@ -257,20 +274,62 @@ export async function publishAction(
 ): Promise<PublishActionState> {
   const auth = await requireSocialManager(formData);
   if (!auth.ok) {
-    return { error: auth.error, status: null, permalink: null, publicationId: null };
+    return { error: auth.error, status: null, permalink: null, publicationId: null, scheduledAt: null };
   }
 
   const accountId = String(formData.get("accountId") ?? "");
   if (!UUID.test(accountId)) {
-    return { error: "Compte invalide.", status: null, permalink: null, publicationId: null };
+    return { error: "Compte invalide.", status: null, permalink: null, publicationId: null, scheduledAt: null };
   }
   const mediaKindRaw = String(formData.get("mediaKind") ?? "reel");
   if (!isMediaKind(mediaKindRaw)) {
-    return { error: "Type de média invalide.", status: null, permalink: null, publicationId: null };
+    return { error: "Type de média invalide.", status: null, permalink: null, publicationId: null, scheduledAt: null };
   }
   const caption = String(formData.get("caption") ?? "").trim();
+  const mediaAssetId = UUID.test(String(formData.get("mediaAssetId") ?? ""))
+    ? String(formData.get("mediaAssetId"))
+    : null;
+  const mediaUrl = String(formData.get("mediaUrl") ?? "").trim();
 
   const { supabase, user } = await requireUser();
+
+  // Échéance fournie : on PROGRAMME au lieu de publier. Les contrôles sont les
+  // mêmes, appliqués tout de suite — découvrir à l'échéance qu'un média ne
+  // convient pas serait un échec que personne ne verrait passer.
+  const scheduledAt = String(formData.get("scheduledAt") ?? "").trim();
+  if (scheduledAt.length > 0) {
+    const planifie = await schedulePublication(publishDeps(supabase), {
+      workspaceId: auth.membership.workspace.id,
+      socialAccountId: accountId,
+      requestedBy: user.id,
+      mediaKind: mediaKindRaw,
+      mediaAssetId,
+      mediaUrl,
+      caption: caption.length > 0 ? caption : null,
+      scheduledAt,
+    });
+
+    revalidatePath(`/app/${auth.membership.workspace.slug}/accounts`);
+    revalidatePath(`/app/${auth.membership.workspace.slug}/calendar`);
+
+    if (!planifie.ok) {
+      return {
+        error: SCHEDULE_ERRORS[planifie.code],
+        status: null,
+        permalink: null,
+        publicationId: null,
+        scheduledAt: null,
+      };
+    }
+    return {
+      error: null,
+      status: "scheduled",
+      permalink: null,
+      publicationId: planifie.publicationId,
+      scheduledAt: planifie.scheduledAt,
+    };
+  }
+
   const outcome = await publishToSocialAccount(publishDeps(supabase), {
     workspaceId: auth.membership.workspace.id,
     socialAccountId: accountId,
@@ -278,10 +337,8 @@ export async function publishAction(
     mediaKind: mediaKindRaw,
     // Deux sources possibles le temps de la transition : un média de la
     // bibliothèque, ou l'URL manuelle historique.
-    mediaAssetId: UUID.test(String(formData.get("mediaAssetId") ?? ""))
-      ? String(formData.get("mediaAssetId"))
-      : null,
-    mediaUrl: String(formData.get("mediaUrl") ?? "").trim(),
+    mediaAssetId,
+    mediaUrl,
     caption: caption.length > 0 ? caption : null,
     shareToFeed: formData.get("shareToFeed") === "on",
   });
@@ -294,6 +351,7 @@ export async function publishAction(
       status: null,
       permalink: null,
       publicationId: outcome.publicationId,
+      scheduledAt: null,
     };
   }
   return {
@@ -301,7 +359,48 @@ export async function publishAction(
     status: outcome.status,
     permalink: outcome.status === "published" ? outcome.permalink : null,
     publicationId: outcome.publicationId,
+    scheduledAt: null,
   };
+}
+
+/**
+ * Annule une publication encore programmée.
+ *
+ * Une publication DÉJÀ réclamée par le planificateur est peut-être en route
+ * chez la plateforme : prétendre l'annuler serait mentir. Le refus est
+ * explicite, et la vérification est refaite en base au moment de l'écriture —
+ * le planificateur a pu réclamer la ligne entre la lecture et la mise à jour.
+ */
+export async function cancelScheduledPublicationAction(
+  _prev: SocialActionState,
+  formData: FormData,
+): Promise<SocialActionState> {
+  const auth = await requireSocialManager(formData);
+  if (!auth.ok) {
+    return { error: auth.error };
+  }
+  const publicationId = String(formData.get("publicationId") ?? "");
+  if (!UUID.test(publicationId)) {
+    return { error: "Publication invalide." };
+  }
+
+  const result = await cancelScheduledPublication(createServiceClient(), {
+    workspaceId: auth.membership.workspace.id,
+    publicationId,
+  });
+
+  revalidatePath(`/app/${auth.membership.workspace.slug}/calendar`);
+  revalidatePath(`/app/${auth.membership.workspace.slug}/accounts`);
+
+  if (!result.ok) {
+    return {
+      error:
+        result.code === "not_found"
+          ? "Publication introuvable."
+          : "Cette publication est déjà partie vers la plateforme : elle ne peut plus être annulée.",
+    };
+  }
+  return { error: null };
 }
 
 /**
@@ -314,11 +413,11 @@ export async function resumePublicationAction(
 ): Promise<PublishActionState> {
   const auth = await requireSocialManager(formData);
   if (!auth.ok) {
-    return { error: auth.error, status: null, permalink: null, publicationId: null };
+    return { error: auth.error, status: null, permalink: null, publicationId: null, scheduledAt: null };
   }
   const publicationId = String(formData.get("publicationId") ?? "");
   if (!UUID.test(publicationId)) {
-    return { error: "Publication invalide.", status: null, permalink: null, publicationId: null };
+    return { error: "Publication invalide.", status: null, permalink: null, publicationId: null, scheduledAt: null };
   }
 
   const { supabase } = await requireUser();
@@ -335,6 +434,7 @@ export async function resumePublicationAction(
       status: null,
       permalink: null,
       publicationId: outcome.publicationId,
+      scheduledAt: null,
     };
   }
   return {
@@ -342,6 +442,7 @@ export async function resumePublicationAction(
     status: outcome.status,
     permalink: outcome.status === "published" ? outcome.permalink : null,
     publicationId: outcome.publicationId,
+    scheduledAt: null,
   };
 }
 

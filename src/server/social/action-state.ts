@@ -9,11 +9,16 @@ export const IDLE_SOCIAL_ACTION: SocialActionState = { error: null };
  */
 export type PublishActionState = {
   error: string | null;
-  /** `published` : en ligne · `pending` : traitement en cours côté plateforme. */
-  status: "published" | "pending" | null;
+  /**
+   * `published` : en ligne · `pending` : traitement en cours côté plateforme
+   * · `scheduled` : enregistrée pour une échéance future (C10.3).
+   */
+  status: "published" | "pending" | "scheduled" | null;
   permalink: string | null;
   /** Identifiant de la publication, nécessaire pour reprendre un `pending`. */
   publicationId: string | null;
+  /** Échéance retenue, en ISO. Non nulle quand `status` vaut `scheduled`. */
+  scheduledAt: string | null;
 };
 
 export const IDLE_PUBLISH_ACTION: PublishActionState = {
@@ -21,4 +26,5 @@ export const IDLE_PUBLISH_ACTION: PublishActionState = {
   status: null,
   permalink: null,
   publicationId: null,
+  scheduledAt: null,
 };

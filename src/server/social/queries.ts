@@ -39,7 +39,7 @@ export async function listSocialAccounts(
 const PUBLICATION_COLUMNS =
   "id, workspace_id, social_account_id, platform, provider_account_id, media_kind, " +
   "media_url, caption, container_id, provider_media_id, permalink, status, " +
-  "status_detail, created_at, published_at";
+  "status_detail, created_at, published_at, scheduled_at";
 
 export async function listRecentPublications(
   supabase: SupabaseClient,
