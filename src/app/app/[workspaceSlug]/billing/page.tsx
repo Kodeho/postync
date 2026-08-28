@@ -155,6 +155,11 @@ export default async function BillingPage({
                     </div>
                     <ul className="flex-1 text-xs text-muted">
                       <li>{plan.quotas.workspaces} workspace{plan.quotas.workspaces > 1 ? "s" : ""}</li>
+                      <li>
+                        {plan.quotas.members === 1
+                          ? "1 membre (offre solo)"
+                          : `${plan.quotas.members} membres`}
+                      </li>
                       <li>{plan.quotas.socialAccounts} comptes sociaux</li>
                       <li>{plan.quotas.publicationsPerMonth.toLocaleString("fr-FR")} publications/mois</li>
                       <li>{plan.quotas.storageGb} Go de stockage</li>

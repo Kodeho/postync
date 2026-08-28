@@ -106,8 +106,9 @@ export default function TermsPage() {
       <LegalSection id="offres" title="5. Offres et prix">
         {gratuit ? (
           <p>
-            L&apos;offre {gratuit.name} est gratuite et limitée à {gratuit.quotas.socialAccounts}{" "}
-            comptes sociaux, {gratuit.quotas.publicationsPerMonth} publications par mois et{" "}
+            L&apos;offre {gratuit.name} est gratuite et limitée à {gratuit.quotas.members}{" "}
+            membre par espace de travail, {gratuit.quotas.socialAccounts} comptes sociaux,{" "}
+            {gratuit.quotas.publicationsPerMonth} publications par mois et{" "}
             {gratuit.quotas.storageGb} Go de stockage.
           </p>
         ) : null}
@@ -120,8 +121,9 @@ export default function TermsPage() {
             <li key={plan.key}>
               <span className="font-medium">{plan.name}</span> —{" "}
               {formatPlanPrice(plan.monthlyPriceCents)} par mois ou{" "}
-              {formatPlanPrice(plan.yearlyPriceCents)} par an ; {plan.quotas.socialAccounts} comptes
-              sociaux, {plan.quotas.publicationsPerMonth} publications par mois,{" "}
+              {formatPlanPrice(plan.yearlyPriceCents)} par an ; {plan.quotas.members} membres par
+              espace de travail, {plan.quotas.socialAccounts} comptes sociaux,{" "}
+              {plan.quotas.publicationsPerMonth} publications par mois,{" "}
               {plan.quotas.storageGb} Go de stockage.
             </li>
           ))}

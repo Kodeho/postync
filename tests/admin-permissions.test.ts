@@ -141,8 +141,9 @@ describe("plans", () => {
       publicationsPerMonth: 2000,
       storageGb: 250,
     });
-    // Les sièges d'équipe croissent avec l'offre : Free est un plan solo, et
-    // c'est pour cela qu'aucune invitation n'y est possible.
+    // Sièges d'équipe validés le 2026-08-28. Free est une offre SOLO : c'est
+    // pour cela qu'aucune invitation n'y est possible, et cette ligne existe
+    // pour qu'une modification des paliers soit un choix, jamais un accident.
     expect(PLANS.map((p) => p.quotas.members)).toEqual([1, 2, 5, 20]);
     expect(formatPlanPrice(0)).toBe("0 €");
     expect(formatPlanPrice(2990).replace(/ | /g, " ")).toBe("29,90 €");

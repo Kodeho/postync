@@ -1,10 +1,20 @@
 /**
- * Offres POSTYNC — configuration de référence (C6).
+ * Offres POSTYNC — SOURCE UNIQUE des prix et des quotas (C6).
  *
- * Base de travail commerciale, volontairement isolée : ni les prix ni les
- * quotas ne sont immuables et rien ici n'est encore appliqué. C7 (Stripe) et
- * C8 (quotas) consommeront cette configuration ; les « Full Access » accordés
- * via `workspace_entitlements` contournent ces limites.
+ * Ce fichier n'est plus une base de travail : ces valeurs sont APPLIQUÉES.
+ * Les comptes sociaux, les publications mensuelles, le stockage et les sièges
+ * d'équipe y sont tous lus, à l'écran comme au moment d'autoriser une action.
+ * Les « Full Access » accordés via `workspace_entitlements` les contournent.
+ *
+ * FAIRE ÉVOLUER UNE OFFRE, c'est modifier ce fichier et rien d'autre. Aucune
+ * limite n'est écrite en dur ailleurs — y compris côté base, où
+ * `create_workspace_invitation` reçoit le quota en PARAMÈTRE plutôt que de le
+ * relire, précisément pour qu'il n'existe pas de seconde vérité.
+ *
+ * Trois surfaces décrivent ces offres à l'utilisateur et doivent rester
+ * complètes : l'écran Abonnement, le tableau d'administration, et les CGU —
+ * qui les décrivent contractuellement. Une limite appliquée sans être
+ * annoncée serait une limite subie.
  */
 
 export type PlanKey = "free" | "creator" | "pro" | "agency";
@@ -14,9 +24,13 @@ export type PlanQuotas = {
   /**
    * Sièges par workspace, propriétaire COMPRIS (C14).
    *
-   * ATTENTION — ces valeurs sont une proposition, pas une décision
-   * commerciale. Elles reprennent l'esprit des paliers existants : Free est
-   * solo, et la capacité d'équipe croît avec l'offre. À ajuster.
+   * Validé le 2026-08-28 : Free 1, Creator 2, Pro 5, Agency 20. Free est donc
+   * une offre solo — aucune invitation n'y est possible, et l'écran Équipe le
+   * dit plutôt que de laisser l'utilisateur buter dessus.
+   *
+   * Les invitations EN ATTENTE occupent un siège : sans cela, inviter cinq
+   * personnes sur une offre à trois passerait, et le dépassement
+   * n'apparaîtrait qu'à l'acceptation.
    */
   members: number;
   socialAccounts: number;

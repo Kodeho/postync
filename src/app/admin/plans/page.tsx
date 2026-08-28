@@ -32,6 +32,7 @@ export default async function AdminPlansPage() {
             <Th className="text-right">Mensuel</Th>
             <Th className="text-right">Annuel</Th>
             <Th className="text-right">Workspaces</Th>
+            <Th className="text-right">Membres</Th>
             <Th className="text-right">Comptes sociaux</Th>
             <Th className="text-right">Publications / mois</Th>
             <Th className="text-right">Stockage</Th>
@@ -51,6 +52,7 @@ export default async function AdminPlansPage() {
               {plan.yearlyPriceCents > 0 ? formatPlanPrice(plan.yearlyPriceCents) : "—"}
             </Td>
             <Td className="text-right tabular-nums">{plan.quotas.workspaces}</Td>
+            <Td className="text-right tabular-nums">{plan.quotas.members}</Td>
             <Td className="text-right tabular-nums">{plan.quotas.socialAccounts}</Td>
             <Td className="text-right tabular-nums">
               {plan.quotas.publicationsPerMonth.toLocaleString("fr-FR")}
