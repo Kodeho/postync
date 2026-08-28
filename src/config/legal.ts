@@ -38,13 +38,18 @@ export type Publisher = {
 
 export const PUBLISHER: Publisher = {
   brand: "POSTYNC",
-  legalName: null,
-  legalForm: null,
+  legalName: "Kodeho",
+  legalForm: "Micro-entreprise",
+  // Une micro-entreprise n'a pas de capital social : le champ reste nul et la
+  // ligne n'est pas affichée, plutôt que d'annoncer « 0 € ».
   shareCapital: null,
-  address: null,
-  registration: null,
+  address: "35 rue de Les Coves, 66000 Perpignan, France",
+  registration: "535 194 799 R.C.S. Perpignan",
+  // Nul tant que l'assujettissement n'est pas confirmé. Une micro-entreprise
+  // sous les seuils relève de la franchise en base (art. 293 B du CGI) et ne
+  // facture pas de TVA : afficher un numéro inexact serait une faute.
   vatNumber: null,
-  publicationDirector: null,
+  publicationDirector: "Ludovic Piraino",
   contactEmail: "contact@kodeho.com",
 };
 

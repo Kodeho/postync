@@ -43,6 +43,14 @@ describe("mentions obligatoires", () => {
     expect(missingLegalFields({ ...COMPLET, legalName: null, registration: null })).toHaveLength(2);
   });
 
+  it("les documents publiés ne portent AUCUNE mention manquante", () => {
+    // Tant que l'éditeur n'avait pas fourni son identité, cette assertion
+    // n'aurait servi à rien. Maintenant qu'elle est renseignée, elle devient
+    // le garde-fou : une régression sur `PUBLISHER` remettrait un
+    // avertissement « document incomplet » en ligne, visible de tous.
+    expect(missingLegalFields()).toEqual([]);
+  });
+
   it("l'adresse de contact est toujours renseignée — c'est le point d'entrée RGPD", () => {
     expect(PUBLISHER.contactEmail).toMatch(/^[^@\s]+@[^@\s]+\.[^@\s]+$/);
   });
