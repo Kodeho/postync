@@ -43,3 +43,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# scripts et secrets jetables d'E2E
+# Ils vivent dans un repertoire temporaire, jamais dans le depot : un mot de
+# passe de compte de test reste un mot de passe, et ce depot est public.
+/e2e-*.mjs
+/.e2e-*
