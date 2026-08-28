@@ -86,10 +86,12 @@ type Key = keyof typeof USERS;
 
 const EMAIL_TARDIF = "postync-c14-late@example.com";
 const EMAIL_JETABLE = "postync-c14-jetable@example.com";
+const EMAIL_PARTANT = "postync-c14-partant@example.com";
 const TOUS_LES_EMAILS = [
   ...Object.values(USERS).map((u) => u.email),
   EMAIL_TARDIF,
   EMAIL_JETABLE,
+  EMAIL_PARTANT,
 ];
 
 let admin: SupabaseClient;
@@ -702,6 +704,48 @@ describe.skipIf(!CONFIGURED)("C14 — membres et invitations (base réelle)", ()
 
     await admin.from("workspace_invitations").delete().eq("id", outcome.invitationId);
   }, 40_000);
+
+  it("H1 — un membre peut quitter le workspace ; le propriétaire, non", async () => {
+    // Sans cette sortie, un membre invité reste attaché à vie, dépendant de la
+    // bonne volonté d'un owner pour en sortir.
+    const outcome = await inviter(W1, "postync-c14-partant@example.com", "member", 50);
+    if (!outcome.ok) throw new Error("invitation non créée");
+
+    const { data: partant, error: creation } = await admin.auth.admin.createUser({
+      email: "postync-c14-partant@example.com",
+      password: PASSWORD,
+      email_confirm: true,
+    });
+    if (creation) throw creation;
+
+    const client = await connecter("postync-c14-partant@example.com");
+    expect(await accepter(client, outcome.token)).toBe("accepted");
+    expect((await rolesDe(W1))[partant.user.id]).toBe("member");
+
+    // Sortie volontaire : c'est la MÊME fonction que le retrait par un admin,
+    // l'autorisation seule diffère (« je suis moi » plutôt qu'« je commande »).
+    const sortie = await admin.rpc("remove_workspace_member", {
+      p_workspace_id: W1,
+      p_user_id: partant.user.id,
+    });
+    expect(sortie.error).toBeNull();
+    expect(sortie.data).toBe("removed");
+
+    // Le workspace disparaît réellement de sa vue.
+    const vue = await client.from("workspaces").select("id").eq("id", W1);
+    expect(vue.data ?? []).toHaveLength(0);
+
+    // Le propriétaire, lui, se voit opposer un refus explicite.
+    const refus = await admin.rpc("remove_workspace_member", {
+      p_workspace_id: W1,
+      p_user_id: ids.owner,
+    });
+    expect(refus.data).toBe("is_owner");
+    expect(await nbProprietaires(W1)).toBe(1);
+
+    await admin.auth.admin.deleteUser(partant.user.id);
+    await admin.from("workspace_invitations").delete().eq("id", outcome.invitationId);
+  }, 60_000);
 
   it("G2 — la liste des membres s'arrête à la frontière du workspace", async () => {
     const vue = await as.owner2.rpc("workspace_members_detailed", { p_workspace_id: W2 });

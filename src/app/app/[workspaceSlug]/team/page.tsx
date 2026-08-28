@@ -8,6 +8,7 @@ import { Panel } from "@/components/ui/panel";
 import {
   InvitationRowActions,
   InviteMemberForm,
+  LeaveWorkspaceForm,
   MemberRow,
   type TeamInvitation,
   type TeamMember,
@@ -134,6 +135,17 @@ export default async function TeamPage({ params }: PageProps<"/app/[workspaceSlu
           description="Invitez quelqu'un par son adresse e-mail : lui seul pourra accepter le lien."
         />
       ) : null}
+
+      <Panel as="section" aria-labelledby="team-leave" className="p-6">
+        <h2 id="team-leave" className="text-base font-semibold text-foreground">
+          Votre appartenance
+        </h2>
+        <LeaveWorkspaceForm
+          workspaceSlug={workspace.slug}
+          workspaceName={workspace.name}
+          isOwner={role === "owner"}
+        />
+      </Panel>
     </div>
   );
 }

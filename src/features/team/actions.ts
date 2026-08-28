@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 
 import { getSiteOrigin } from "@/lib/site-url";
 import { findMembershipBySlug } from "@/features/workspaces/resolve";
@@ -397,4 +398,78 @@ export async function removeMemberAction(
     return { error: "Le membre n'a pas pu être retiré.", notice: null, invitationUrl: null, invitationId: null };
   }
   return { error: null, notice: "Membre retiré du workspace.", invitationUrl: null, invitationId: null };
+}
+
+// ---------------------------------------------------------------------------
+// Quitter un workspace
+// ---------------------------------------------------------------------------
+
+/**
+ * Quitter un workspace dont on est membre.
+ *
+ * POURQUOI C'EST UNE ACTION À PART. Toutes les autres passent par
+ * `requireTeamManager` : elles demandent un pouvoir sur QUELQU'UN D'AUTRE.
+ * Celle-ci n'en demande aucun — on n'a pas besoin d'être admin pour cesser
+ * d'appartenir à une équipe. Sans elle, un membre invité restait attaché à vie,
+ * dépendant de la bonne volonté d'un owner pour en sortir : ce n'est pas une
+ * lacune d'interface, c'est une personne qui ne peut pas partir.
+ *
+ * LE PROPRIÉTAIRE NE PEUT PAS PARTIR, et le message le dit sans détour :
+ * `workspaces.owner_id` le désigne, le workspace resterait sans personne pour
+ * l'administrer. La base le refuserait de toute façon — le contrôle est ici
+ * pour donner une explication plutôt qu'un refus muet.
+ */
+export async function leaveWorkspaceAction(
+  _prev: TeamActionState,
+  formData: FormData,
+): Promise<TeamActionState> {
+  const slug = String(formData.get("workspaceSlug") ?? "");
+  const { supabase, user } = await requireUser();
+  const memberships = await listMemberships(supabase, user.id);
+  const membership = findMembershipBySlug(memberships, slug);
+
+  if (!membership) {
+    return { error: "Workspace introuvable.", notice: null, invitationUrl: null, invitationId: null };
+  }
+
+  if (membership.role === "owner") {
+    return {
+      error:
+        "Vous êtes le propriétaire de ce workspace : le quitter le laisserait sans personne pour l'administrer.",
+      notice: null,
+      invitationUrl: null,
+      invitationId: null,
+    };
+  }
+
+  const db = createServiceClient();
+  const { data, error } = await db.rpc("remove_workspace_member", {
+    p_workspace_id: membership.workspace.id,
+    p_user_id: user.id,
+  });
+
+  if (error) {
+    console.error(`[team:leave] ${error.code ?? "inconnu"}`);
+    return {
+      error: "Vous n'avez pas pu quitter ce workspace. Réessayez.",
+      notice: null,
+      invitationUrl: null,
+      invitationId: null,
+    };
+  }
+
+  const statut = String(data);
+  if (statut !== "removed") {
+    return {
+      error: "Vous n'avez pas pu quitter ce workspace.",
+      notice: null,
+      invitationUrl: null,
+      invitationId: null,
+    };
+  }
+
+  // La liste des workspaces du bandeau change : elle est lue à la racine.
+  revalidatePath("/", "layout");
+  // On ne renvoie pas vers `/app/<slug>` — il vient de devenir inaccessible.
+  redirect("/app");
 }

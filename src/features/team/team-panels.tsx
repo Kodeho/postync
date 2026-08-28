@@ -11,6 +11,7 @@ import type { WorkspaceRole } from "@/types/workspace-role";
 
 import {
   inviteMemberAction,
+  leaveWorkspaceAction,
   removeMemberAction,
   resendInvitationAction,
   revokeInvitationAction,
@@ -306,5 +307,61 @@ export function InvitationRowActions({
         </span>
       ) : null}
     </li>
+  );
+}
+
+/**
+ * Quitter un workspace.
+ *
+ * DÉLIBÉRÉMENT EN DEUX TEMPS. Partir n'est pas réversible d'un clic : il
+ * faudra qu'un owner ou un admin réinvite la personne, et ce n'est pas en son
+ * pouvoir. Un `confirm()` de navigateur ferait le même office, mais bloquerait
+ * la page ; le repli sur un dépliant natif demande le même geste conscient et
+ * laisse en plus la place d'EXPLIQUER la conséquence, ce qu'une boîte de
+ * dialogue fait mal.
+ */
+export function LeaveWorkspaceForm({
+  workspaceSlug,
+  workspaceName,
+  isOwner,
+}: {
+  workspaceSlug: string;
+  workspaceName: string;
+  isOwner: boolean;
+}) {
+  const [state, action] = useActionState(leaveWorkspaceAction, IDLE_TEAM_ACTION);
+
+  if (isOwner) {
+    return (
+      <p className="mt-2 text-sm text-muted">
+        Vous êtes propriétaire de « {workspaceName} » : vous ne pouvez pas le quitter,
+        sans quoi plus personne ne pourrait l&apos;administrer.
+      </p>
+    );
+  }
+
+  return (
+    <details className="mt-2 group">
+      <summary className="cursor-pointer list-none text-sm text-muted underline-offset-2 hover:text-danger hover:underline">
+        Quitter « {workspaceName} »
+      </summary>
+      <div className="mt-3 flex flex-col gap-3">
+        <p className="text-sm text-muted">
+          Vous perdrez immédiatement l&apos;accès aux comptes sociaux, aux médias et aux
+          publications de ce workspace. Pour y revenir, il faudra qu&apos;un propriétaire
+          ou un admin vous réinvite.
+        </p>
+        {state.error ? <FormAlert tone="error">{state.error}</FormAlert> : null}
+        <form action={action}>
+          <input type="hidden" name="workspaceSlug" value={workspaceSlug} />
+          <button
+            type="submit"
+            className="inline-flex h-10 items-center justify-center rounded-md border border-danger/40 bg-danger-soft px-4 text-sm font-medium text-danger transition-colors hover:bg-danger hover:text-white"
+          >
+            Confirmer et quitter
+          </button>
+        </form>
+      </div>
+    </details>
   );
 }
