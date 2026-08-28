@@ -7,6 +7,7 @@ import {
   Send,
   Settings,
   Share2,
+  Users,
 } from "lucide-react";
 
 import type { NavKey } from "@/features/workspaces/navigation";
@@ -18,6 +19,7 @@ const ICONS: Record<NavKey, typeof LayoutDashboard> = {
   media: Images,
   accounts: Share2,
   analytics: BarChart3,
+  team: Users,
   settings: Settings,
   billing: CreditCard,
 };

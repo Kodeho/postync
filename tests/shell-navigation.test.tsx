@@ -68,7 +68,7 @@ describe("navigation — génération des liens", () => {
     expect(workspaceHref("kodeho", "publish")).toBe("/app/kodeho/publish");
   });
 
-  it("expose les huit destinations attendues, dans les bonnes sections", () => {
+  it("expose les neuf destinations attendues, dans les bonnes sections", () => {
     expect(NAV_ITEMS.map((i) => i.segment)).toEqual([
       "",
       "publish",
@@ -76,6 +76,7 @@ describe("navigation — génération des liens", () => {
       "media",
       "accounts",
       "analytics",
+      "team",
       "settings",
       "billing",
     ]);
@@ -87,7 +88,7 @@ describe("navigation — génération des liens", () => {
       "Comptes sociaux",
       "Statistiques",
     ]);
-    expect(navItemsFor("secondary").map((i) => i.label)).toEqual(["Paramètres"]);
+    expect(navItemsFor("secondary").map((i) => i.label)).toEqual(["Équipe", "Paramètres"]);
     expect(navItemsFor("footer").map((i) => i.label)).toEqual(["Abonnement"]);
   });
 });

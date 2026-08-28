@@ -136,10 +136,14 @@ describe("plans", () => {
     expect(getPlan("creator").monthlyPriceCents).toBe(1290);
     expect(getPlan("agency").quotas).toEqual({
       workspaces: 20,
+      members: 20,
       socialAccounts: 100,
       publicationsPerMonth: 2000,
       storageGb: 250,
     });
+    // Les sièges d'équipe croissent avec l'offre : Free est un plan solo, et
+    // c'est pour cela qu'aucune invitation n'y est possible.
+    expect(PLANS.map((p) => p.quotas.members)).toEqual([1, 2, 5, 20]);
     expect(formatPlanPrice(0)).toBe("0 €");
     expect(formatPlanPrice(2990).replace(/ | /g, " ")).toBe("29,90 €");
   });

@@ -10,11 +10,12 @@ import { TextField } from "@/components/ui/text-field";
 import { signInAction } from "./actions";
 import { EMPTY_AUTH_STATE } from "./state";
 
-export function LoginForm() {
+export function LoginForm({ next }: { next?: string }) {
   const [state, formAction] = useActionState(signInAction, EMPTY_AUTH_STATE);
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
+      {next ? <input type="hidden" name="next" value={next} /> : null}
       {state.error ? <FormAlert tone="error">{state.error}</FormAlert> : null}
 
       <TextField
@@ -34,7 +35,7 @@ export function LoginForm() {
 
       <p className="text-sm text-muted">
         Pas encore de compte ?{" "}
-        <Link href="/signup" className="font-medium text-primary underline-offset-4 hover:underline">
+        <Link href={next ? `/signup?next=${encodeURIComponent(next)}` : "/signup"} className="font-medium text-primary underline-offset-4 hover:underline">
           Créer un compte
         </Link>
       </p>

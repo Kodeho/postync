@@ -24,6 +24,7 @@ export type NavKey =
   | "media"
   | "accounts"
   | "analytics"
+  | "team"
   | "settings"
   | "billing";
 
@@ -34,6 +35,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { key: "media", label: "Médiathèque", segment: "media", section: "main" },
   { key: "accounts", label: "Comptes sociaux", segment: "accounts", section: "main" },
   { key: "analytics", label: "Statistiques", segment: "analytics", section: "main" },
+  { key: "team", label: "Équipe", segment: "team", section: "secondary" },
   { key: "settings", label: "Paramètres", segment: "settings", section: "secondary" },
   { key: "billing", label: "Abonnement", segment: "billing", section: "footer" },
 ];

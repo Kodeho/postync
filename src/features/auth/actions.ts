@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
+import { safeReturnPath } from "@/lib/return-path";
 import { getSiteOrigin } from "@/lib/site-url";
 
 import { toUserMessage } from "./errors";
@@ -102,7 +103,11 @@ export async function signUpAction(
   }
 
   revalidatePath("/", "layout");
-  redirect("/app");
+  // Destination de retour, si elle a survecu au formulaire : quelqu'un qui
+  // arrive par une invitation doit y revenir, pas atterrir sur l'accueil.
+  // `safeReturnPath` n'accepte qu'un chemin interne — sans quoi ce serait une
+  // redirection ouverte, juste apres la saisie d'un mot de passe.
+  redirect(safeReturnPath(String(formData.get("next") ?? "")));
 }
 
 /** Connexion par e-mail et mot de passe. */
@@ -136,7 +141,7 @@ export async function signInAction(
   }
 
   revalidatePath("/", "layout");
-  redirect("/app");
+  redirect(safeReturnPath(String(formData.get("next") ?? "")));
 }
 
 /**

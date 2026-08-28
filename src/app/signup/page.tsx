@@ -4,14 +4,18 @@ import { connection } from "next/server";
 import { AuthShell } from "@/components/layout/auth-shell";
 import { FormAlert } from "@/components/ui/form-alert";
 import { SignupForm } from "@/features/auth/signup-form";
+import { safeReturnPath } from "@/lib/return-path";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 
 export const metadata: Metadata = {
   title: "Créer un compte — POSTYNC",
 };
 
-export default async function SignupPage() {
+export default async function SignupPage({ searchParams }: PageProps<"/signup">) {
   await connection();
+
+  const params = await searchParams;
+  const next = safeReturnPath(typeof params.next === "string" ? params.next : null, "");
 
   return (
     <AuthShell title="Créer un compte">
@@ -23,7 +27,7 @@ export default async function SignupPage() {
           </FormAlert>
         </div>
       )}
-      <SignupForm />
+      <SignupForm next={next} />
     </AuthShell>
   );
 }

@@ -4,6 +4,7 @@ import { connection } from "next/server";
 import { AuthShell } from "@/components/layout/auth-shell";
 import { FormAlert } from "@/components/ui/form-alert";
 import { LoginForm } from "@/features/auth/login-form";
+import { safeReturnPath } from "@/lib/return-path";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 
 export const metadata: Metadata = {
@@ -38,7 +39,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
           <FormAlert tone="error">{callbackError}</FormAlert>
         ) : null}
       </div>
-      <LoginForm />
+      <LoginForm next={safeReturnPath(typeof params.next === "string" ? params.next : null, "")} />
     </AuthShell>
   );
 }

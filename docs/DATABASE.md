@@ -545,6 +545,80 @@ jeton de Page. `token_expires_at` y vaut `null` : un jeton de Page n'a pas de
 date d'expiration — ce qui ne veut pas dire qu'il est éternel, il reste
 invalidable.
 
+## Invitations d'équipe (C14)
+
+### Table `workspace_invitations`
+
+Deux propriétés portent toute la sécurité de l'étape.
+
+**Le jeton n'est jamais stocké.** La table ne garde que son empreinte SHA-256,
+comme `oauth_states` en C8.1. Lire la table ne permet donc de rejoindre aucun
+workspace, et POSTYNC lui-même ne peut pas régénérer un lien déjà émis :
+« renvoyer » une invitation, c'est en créer une nouvelle et révoquer l'ancienne.
+
+**L'invitation est liée à une adresse.** Ce n'est pas la possession du lien qui
+autorise, c'est la comparaison — faite en base — entre l'adresse du compte
+connecté et celle de l'invitation. Un lien transmis par erreur à un tiers ne
+lui ouvre rien. C'est aussi ce qui rend correct le cas « la personne n'a pas
+encore de compte » : elle s'inscrit avec cette adresse, puis accepte.
+
+| Colonne | Rôle |
+| --- | --- |
+| `workspace_id` | workspace visé (`on delete cascade`) |
+| `email` | adresse invitée, **stockée normalisée** (contrainte `check`) |
+| `role` | `admin` ou `member` ; `owner` est exclu par contrainte |
+| `token_hash` | SHA-256 du jeton, unique |
+| `expires_at` | TTL 7 jours ; `check (expires_at > created_at)` |
+| `accepted_at` / `accepted_by` | acceptation ; `check` : l'un implique l'autre |
+| `revoked_at` | annulation |
+
+L'index partiel unique `(workspace_id, email) where accepted_at is null and
+revoked_at is null` est la source de vérité de l'unicité : deux invitations
+simultanées pour la même adresse ne peuvent pas coexister.
+
+### RLS et privilèges (C14)
+
+| Table | authenticated |
+| --- | --- |
+| `workspace_invitations` | `select` sur **toutes les colonnes sauf `token_hash`**, limité aux membres du workspace |
+
+La liste blanche de colonnes n'est pas un détail : même un membre légitime ne
+peut pas lire `token_hash`, donc une session compromise ne permet pas de
+fabriquer un lien d'invitation valide. Toutes les écritures passent par des
+fonctions `security definer`.
+
+### Fonctions
+
+| Fonction | Accordée à | Rôle |
+| --- | --- | --- |
+| `accept_workspace_invitation(token_hash)` | `authenticated` | accepte pour **`auth.uid()`**, jamais pour un identifiant passé en paramètre |
+| `create_workspace_invitation(...)` | `service_role` | crée sous verrou du workspace : quota de sièges, déjà-membre, unicité |
+| `set_workspace_member_role(...)` | `service_role` | change un rôle ; refuse le propriétaire et le rôle `owner` |
+| `remove_workspace_member(...)` | `service_role` | retire un membre ; refuse le propriétaire |
+| `workspace_members_detailed(...)` | `authenticated` | membres avec nom et adresse, via `is_workspace_member` |
+| `workspace_member_id_by_email(...)` | `service_role` | résout une adresse ; révélerait sinon une appartenance |
+
+`accept_workspace_invitation` lit `auth.uid()` elle-même plutôt que de recevoir
+un identifiant : un bug applicatif ne peut donc pas rattacher la mauvaise
+personne, c'est structurellement impossible.
+
+### Concurrence
+
+Trois courses sont fermées, chacune par un verrou de ligne :
+
+- **le dernier siège** — deux invitations simultanées pour deux adresses
+  différentes ; décompte et insertion sont indivisibles dans
+  `create_workspace_invitation`, sous `for update` sur la ligne du workspace ;
+- **le double clic** — deux acceptations simultanées du même lien ; le `for
+  update` sur la ligne d'invitation les sérialise, la seconde constate
+  `already_accepted` ;
+- **le workspace orphelin** — garanti depuis C4, sans verrou : le déclencheur
+  `protect_owner_membership` impose ligne par ligne qu'un workspace ait
+  **exactement un** propriétaire, et que ce soit `workspaces.owner_id`. Son
+  appartenance ne peut être ni supprimée ni modifiée, et personne d'autre ne
+  peut porter le rôle `owner`. Le transfert de propriété est donc une opération
+  à part entière, hors de C14.
+
 ## Appliquer la migration
 
 ```powershell
@@ -573,6 +647,15 @@ exécute un fichier via l'API de management (compte CLI connecté).
   mêmes scénarios contre l'API REST/RPC réelle avec de vrais JWT
   `authenticated`. Crée des comptes `postync-c4-*@example.com` et les
   supprime en fin d'exécution ; ignoré si `.env.local` est absent.
+
+- `tests/integration/team-invitations.test.ts` (C14, `npm test`) : A1–G2
+  contre la base réelle. Jeton jamais stocké, `token_hash` illisible même par
+  un membre, lien intercepté sans valeur, rejeu, annulation, expiration,
+  inscription postérieure à l'invitation, isolation entre workspaces, quota de
+  sièges, et trois courses réellement jouées en requêtes simultanées (dernier
+  siège, double acceptation, retraits et rétrogradations en masse). Crée des
+  comptes `postync-c14-*@example.com` et les supprime en fin d'exécution ;
+  ignoré si `.env.local` est absent.
 
 Les deux scripts SQL sont encadrés par `begin`/`rollback` et ne laissent
 aucune trace.

@@ -11,6 +11,14 @@ export type PlanKey = "free" | "creator" | "pro" | "agency";
 
 export type PlanQuotas = {
   workspaces: number;
+  /**
+   * Sièges par workspace, propriétaire COMPRIS (C14).
+   *
+   * ATTENTION — ces valeurs sont une proposition, pas une décision
+   * commerciale. Elles reprennent l'esprit des paliers existants : Free est
+   * solo, et la capacité d'équipe croît avec l'offre. À ajuster.
+   */
+  members: number;
   socialAccounts: number;
   publicationsPerMonth: number;
   storageGb: number;
@@ -35,7 +43,7 @@ export const PLANS: readonly Plan[] = [
     name: "Free",
     monthlyPriceCents: 0,
     yearlyPriceCents: 0,
-    quotas: { workspaces: 1, socialAccounts: 2, publicationsPerMonth: 10, storageGb: 1 },
+    quotas: { workspaces: 1, members: 1, socialAccounts: 2, publicationsPerMonth: 10, storageGb: 1 },
     description: "Pour découvrir POSTYNC.",
   },
   {
@@ -43,7 +51,7 @@ export const PLANS: readonly Plan[] = [
     name: "Creator",
     monthlyPriceCents: 1290,
     yearlyPriceCents: 12900,
-    quotas: { workspaces: 1, socialAccounts: 6, publicationsPerMonth: 100, storageGb: 10 },
+    quotas: { workspaces: 1, members: 2, socialAccounts: 6, publicationsPerMonth: 100, storageGb: 10 },
     description: "Pour un créateur qui publie régulièrement.",
   },
   {
@@ -51,7 +59,7 @@ export const PLANS: readonly Plan[] = [
     name: "Pro",
     monthlyPriceCents: 2990,
     yearlyPriceCents: 29900,
-    quotas: { workspaces: 5, socialAccounts: 20, publicationsPerMonth: 500, storageGb: 50 },
+    quotas: { workspaces: 5, members: 5, socialAccounts: 20, publicationsPerMonth: 500, storageGb: 50 },
     description: "Pour les marques et les indépendants multi-comptes.",
   },
   {
@@ -59,7 +67,7 @@ export const PLANS: readonly Plan[] = [
     name: "Agency",
     monthlyPriceCents: 7990,
     yearlyPriceCents: 79900,
-    quotas: { workspaces: 20, socialAccounts: 100, publicationsPerMonth: 2000, storageGb: 250 },
+    quotas: { workspaces: 20, members: 20, socialAccounts: 100, publicationsPerMonth: 2000, storageGb: 250 },
     description: "Pour les agences gérant de nombreux clients.",
   },
 ];

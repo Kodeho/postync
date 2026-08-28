@@ -10,7 +10,7 @@ import { signUpAction } from "./actions";
 import { SignupFields } from "./signup-fields";
 import { EMPTY_AUTH_STATE } from "./state";
 
-export function SignupForm() {
+export function SignupForm({ next }: { next?: string }) {
   const [state, formAction] = useActionState(signUpAction, EMPTY_AUTH_STATE);
 
   if (state.notice) {
@@ -18,7 +18,7 @@ export function SignupForm() {
       <div className="flex flex-col gap-4">
         <FormAlert tone="notice">{state.notice}</FormAlert>
         <p className="text-sm text-muted">
-          <Link href="/login" className="font-medium text-primary underline-offset-4 hover:underline">
+          <Link href={next ? `/login?next=${encodeURIComponent(next)}` : "/login"} className="font-medium text-primary underline-offset-4 hover:underline">
             Retour à la connexion
           </Link>
         </p>
@@ -28,6 +28,7 @@ export function SignupForm() {
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
+      {next ? <input type="hidden" name="next" value={next} /> : null}
       {state.error ? <FormAlert tone="error">{state.error}</FormAlert> : null}
 
       <SignupFields values={state.values} />
@@ -53,7 +54,7 @@ export function SignupForm() {
 
       <p className="text-sm text-muted">
         Déjà un compte ?{" "}
-        <Link href="/login" className="font-medium text-primary underline-offset-4 hover:underline">
+        <Link href={next ? `/login?next=${encodeURIComponent(next)}` : "/login"} className="font-medium text-primary underline-offset-4 hover:underline">
           Se connecter
         </Link>
       </p>
