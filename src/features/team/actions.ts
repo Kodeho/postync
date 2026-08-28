@@ -123,7 +123,7 @@ export async function inviteMemberAction(
 ): Promise<TeamActionState> {
   const auth = await requireTeamManager(formData);
   if (!auth.ok) {
-    return { error: auth.error, notice: null, invitationUrl: null };
+    return { error: auth.error, notice: null, invitationUrl: null, invitationId: null };
   }
 
   // Un admin ne peut inviter que des `member` : lui laisser créer des admins
@@ -135,6 +135,7 @@ export async function inviteMemberAction(
       error: "Un admin ne peut inviter que des membres.",
       notice: null,
       invitationUrl: null,
+      invitationId: null,
     };
   }
 
@@ -163,6 +164,7 @@ export async function inviteMemberAction(
       error: INVITE_ERRORS[outcome.code](outcome.seats ?? 0),
       notice: null,
       invitationUrl: null,
+      invitationId: null,
     };
   }
 
@@ -172,6 +174,7 @@ export async function inviteMemberAction(
     notice:
       "Invitation créée. Transmettez ce lien à la personne concernée : lui seul permet de rejoindre le workspace, et il ne sera plus affiché ensuite.",
     invitationUrl: `${origin}/invitations/${outcome.token}`,
+    invitationId: outcome.invitationId,
   };
 }
 
@@ -185,11 +188,11 @@ export async function resendInvitationAction(
 ): Promise<TeamActionState> {
   const auth = await requireTeamManager(formData);
   if (!auth.ok) {
-    return { error: auth.error, notice: null, invitationUrl: null };
+    return { error: auth.error, notice: null, invitationUrl: null, invitationId: null };
   }
   const invitationId = String(formData.get("invitationId") ?? "");
   if (!UUID.test(invitationId)) {
-    return { error: "Invitation invalide.", notice: null, invitationUrl: null };
+    return { error: "Invitation invalide.", notice: null, invitationUrl: null, invitationId: null };
   }
 
   const { supabase } = await requireUser();
@@ -216,6 +219,7 @@ export async function resendInvitationAction(
       error: "Cette invitation ne peut plus être renvoyée.",
       notice: null,
       invitationUrl: null,
+      invitationId: null,
     };
   }
 
@@ -225,6 +229,7 @@ export async function resendInvitationAction(
     notice:
       "Nouveau lien émis. Le précédent ne fonctionne plus — le jeton n'étant pas conservé, renvoyer produit toujours un lien neuf.",
     invitationUrl: `${origin}/invitations/${outcome.token}`,
+    invitationId: outcome.invitationId,
   };
 }
 
@@ -234,11 +239,11 @@ export async function revokeInvitationAction(
 ): Promise<TeamActionState> {
   const auth = await requireTeamManager(formData);
   if (!auth.ok) {
-    return { error: auth.error, notice: null, invitationUrl: null };
+    return { error: auth.error, notice: null, invitationUrl: null, invitationId: null };
   }
   const invitationId = String(formData.get("invitationId") ?? "");
   if (!UUID.test(invitationId)) {
-    return { error: "Invitation invalide.", notice: null, invitationUrl: null };
+    return { error: "Invitation invalide.", notice: null, invitationUrl: null, invitationId: null };
   }
 
   const result = await revokeInvitation(createServiceClient(), {
@@ -253,9 +258,10 @@ export async function revokeInvitationAction(
       error: "Cette invitation a déjà été acceptée ou annulée.",
       notice: null,
       invitationUrl: null,
+      invitationId: null,
     };
   }
-  return { error: null, notice: "Invitation annulée.", invitationUrl: null };
+  return { error: null, notice: "Invitation annulée.", invitationUrl: null, invitationId: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -268,23 +274,24 @@ export async function setMemberRoleAction(
 ): Promise<TeamActionState> {
   const auth = await requireTeamManager(formData);
   if (!auth.ok) {
-    return { error: auth.error, notice: null, invitationUrl: null };
+    return { error: auth.error, notice: null, invitationUrl: null, invitationId: null };
   }
   const userId = String(formData.get("userId") ?? "");
   const role = String(formData.get("role") ?? "");
   if (!UUID.test(userId)) {
-    return { error: "Membre invalide.", notice: null, invitationUrl: null };
+    return { error: "Membre invalide.", notice: null, invitationUrl: null, invitationId: null };
   }
 
   const actuel = await roleDuMembre(auth.membership.workspace.id, userId);
   if (!actuel) {
-    return { error: "Ce membre n'appartient pas à ce workspace.", notice: null, invitationUrl: null };
+    return { error: "Ce membre n'appartient pas à ce workspace.", notice: null, invitationUrl: null, invitationId: null };
   }
   if (!peutAgirSur(auth.membership.role, actuel)) {
     return {
       error: "Vous ne pouvez pas modifier le rôle de cette personne.",
       notice: null,
       invitationUrl: null,
+      invitationId: null,
     };
   }
   // Un workspace n'a qu'un propriétaire, et c'est `workspaces.owner_id`.
@@ -295,6 +302,7 @@ export async function setMemberRoleAction(
         "Un workspace n'a qu'un seul propriétaire. Le transfert de propriété n'est pas proposé ici.",
       notice: null,
       invitationUrl: null,
+      invitationId: null,
     };
   }
 
@@ -309,7 +317,7 @@ export async function setMemberRoleAction(
 
   if (error) {
     console.error(`[team:role] ${error.code ?? "inconnu"}`);
-    return { error: "Le rôle n'a pas pu être modifié. Réessayez.", notice: null, invitationUrl: null };
+    return { error: "Le rôle n'a pas pu être modifié. Réessayez.", notice: null, invitationUrl: null, invitationId: null };
   }
 
   const statut = String(data);
@@ -319,6 +327,7 @@ export async function setMemberRoleAction(
         "Le propriétaire du workspace conserve son rôle : sans lui, plus personne ne pourrait l'administrer.",
       notice: null,
       invitationUrl: null,
+      invitationId: null,
     };
   }
   if (statut === "owner_is_unique") {
@@ -326,12 +335,13 @@ export async function setMemberRoleAction(
       error: "Un workspace n'a qu'un seul propriétaire.",
       notice: null,
       invitationUrl: null,
+      invitationId: null,
     };
   }
   if (statut !== "updated" && statut !== "unchanged") {
-    return { error: "Le rôle n'a pas pu être modifié.", notice: null, invitationUrl: null };
+    return { error: "Le rôle n'a pas pu être modifié.", notice: null, invitationUrl: null, invitationId: null };
   }
-  return { error: null, notice: "Rôle mis à jour.", invitationUrl: null };
+  return { error: null, notice: "Rôle mis à jour.", invitationUrl: null, invitationId: null };
 }
 
 export async function removeMemberAction(
@@ -340,22 +350,23 @@ export async function removeMemberAction(
 ): Promise<TeamActionState> {
   const auth = await requireTeamManager(formData);
   if (!auth.ok) {
-    return { error: auth.error, notice: null, invitationUrl: null };
+    return { error: auth.error, notice: null, invitationUrl: null, invitationId: null };
   }
   const userId = String(formData.get("userId") ?? "");
   if (!UUID.test(userId)) {
-    return { error: "Membre invalide.", notice: null, invitationUrl: null };
+    return { error: "Membre invalide.", notice: null, invitationUrl: null, invitationId: null };
   }
 
   const actuel = await roleDuMembre(auth.membership.workspace.id, userId);
   if (!actuel) {
-    return { error: "Ce membre n'appartient pas à ce workspace.", notice: null, invitationUrl: null };
+    return { error: "Ce membre n'appartient pas à ce workspace.", notice: null, invitationUrl: null, invitationId: null };
   }
   if (!peutAgirSur(auth.membership.role, actuel)) {
     return {
       error: "Vous ne pouvez pas retirer cette personne.",
       notice: null,
       invitationUrl: null,
+      invitationId: null,
     };
   }
 
@@ -369,7 +380,7 @@ export async function removeMemberAction(
 
   if (error) {
     console.error(`[team:remove] ${error.code ?? "inconnu"}`);
-    return { error: "Le membre n'a pas pu être retiré. Réessayez.", notice: null, invitationUrl: null };
+    return { error: "Le membre n'a pas pu être retiré. Réessayez.", notice: null, invitationUrl: null, invitationId: null };
   }
 
   const statut = String(data);
@@ -379,10 +390,11 @@ export async function removeMemberAction(
         "Le propriétaire du workspace ne peut pas en être retiré : plus personne ne pourrait l'administrer.",
       notice: null,
       invitationUrl: null,
+      invitationId: null,
     };
   }
   if (statut !== "removed") {
-    return { error: "Le membre n'a pas pu être retiré.", notice: null, invitationUrl: null };
+    return { error: "Le membre n'a pas pu être retiré.", notice: null, invitationUrl: null, invitationId: null };
   }
-  return { error: null, notice: "Membre retiré du workspace.", invitationUrl: null };
+  return { error: null, notice: "Membre retiré du workspace.", invitationUrl: null, invitationId: null };
 }

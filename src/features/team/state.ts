@@ -15,10 +15,19 @@ export type TeamActionState = {
    * nouveau lien et invalide l'ancien.
    */
   invitationUrl: string | null;
+  /**
+   * Invitation que ce lien ouvre.
+   *
+   * Sert à savoir si le lien affiché est encore VIVANT : annuler l'invitation,
+   * ou la renvoyer, le rend inutilisable, et un écran qui continue de le
+   * présenter sous « copiez-le maintenant » invite à transmettre un lien mort.
+   */
+  invitationId: string | null;
 };
 
 export const IDLE_TEAM_ACTION: TeamActionState = {
   error: null,
   notice: null,
   invitationUrl: null,
+  invitationId: null,
 };

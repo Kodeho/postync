@@ -38,7 +38,7 @@ export async function acceptInvitationAction(
 ): Promise<TeamActionState> {
   const token = String(formData.get("token") ?? "");
   if (token.length === 0) {
-    return { error: MESSAGES.not_found, notice: null, invitationUrl: null };
+    return { error: MESSAGES.not_found, notice: null, invitationUrl: null, invitationId: null };
   }
 
   // `requireUser` applique les mêmes contrôles que partout : session valide et
@@ -56,6 +56,7 @@ export async function acceptInvitationAction(
       error: "L'invitation n'a pas pu être acceptée. Réessayez.",
       notice: null,
       invitationUrl: null,
+      invitationId: null,
     };
   }
 
@@ -65,6 +66,7 @@ export async function acceptInvitationAction(
       error: MESSAGES[resultat?.status ?? "not_found"] ?? MESSAGES.not_found,
       notice: null,
       invitationUrl: null,
+      invitationId: null,
     };
   }
 

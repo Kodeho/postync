@@ -58,6 +58,8 @@ export default async function TeamPage({ params }: PageProps<"/app/[workspaceSlu
     isSelf: membre.user_id === ctx.user.id,
   }));
 
+  const idsVivants = invitations.map((invitation) => invitation.id);
+
   const invitationsAffichees: TeamInvitation[] = invitations.map((invitation) => ({
     id: invitation.id,
     email: invitation.email,
@@ -81,6 +83,7 @@ export default async function TeamPage({ params }: PageProps<"/app/[workspaceSlu
             workspaceSlug={workspace.slug}
             canInviteAdmins={role === "owner"}
             seatsLeft={restants}
+            liveInvitationIds={idsVivants}
           />
         </Panel>
       ) : null}
@@ -119,6 +122,7 @@ export default async function TeamPage({ params }: PageProps<"/app/[workspaceSlu
                 key={invitation.email}
                 workspaceSlug={workspace.slug}
                 invitation={invitation}
+                liveInvitationIds={idsVivants}
               />
             ))}
           </ul>

@@ -52,7 +52,13 @@ export type TeamInvitation = {
   expiresAt: string;
 };
 
-/** Lien d'invitation, affiché une seule fois — le jeton n'est pas conservé. */
+/**
+ * Lien d'invitation, affiché une seule fois — le jeton n'est pas conservé.
+ *
+ * N'est rendu que tant que l'invitation qu'il ouvre est VIVANTE : l'annuler ou
+ * la renvoyer le rend inutilisable, et continuer de l'afficher sous « copiez-le
+ * maintenant » inviterait à transmettre un lien mort.
+ */
 function LienInvitation({ url }: { url: string }) {
   return (
     <div className="flex flex-col gap-1 rounded-md border border-success/30 bg-success-soft p-3">
@@ -70,11 +76,14 @@ export function InviteMemberForm({
   workspaceSlug,
   canInviteAdmins,
   seatsLeft,
+  liveInvitationIds,
 }: {
   workspaceSlug: string;
   /** Un admin ne peut inviter que des membres. */
   canInviteAdmins: boolean;
   seatsLeft: number;
+  /** Invitations encore en attente, pour ne pas afficher un lien périmé. */
+  liveInvitationIds: readonly string[];
 }) {
   const [state, action] = useActionState(inviteMemberAction, IDLE_TEAM_ACTION);
 
@@ -121,7 +130,9 @@ export function InviteMemberForm({
       </div>
       {state.error ? <FormAlert tone="error">{state.error}</FormAlert> : null}
       {state.notice ? <FormAlert tone="notice">{state.notice}</FormAlert> : null}
-      {state.invitationUrl ? <LienInvitation url={state.invitationUrl} /> : null}
+      {state.invitationUrl && state.invitationId && liveInvitationIds.includes(state.invitationId) ? (
+        <LienInvitation url={state.invitationUrl} />
+      ) : null}
     </form>
   );
 }
@@ -224,9 +235,11 @@ export function MemberRow({
 export function InvitationRowActions({
   workspaceSlug,
   invitation,
+  liveInvitationIds,
 }: {
   workspaceSlug: string;
   invitation: TeamInvitation;
+  liveInvitationIds: readonly string[];
 }) {
   const [resendState, resendAction] = useActionState(resendInvitationAction, IDLE_TEAM_ACTION);
   const [revokeState, revokeAction] = useActionState(revokeInvitationAction, IDLE_TEAM_ACTION);
@@ -274,7 +287,9 @@ export function InvitationRowActions({
           <FormAlert tone="notice">{resendState.notice}</FormAlert>
         </span>
       ) : null}
-      {resendState.invitationUrl ? (
+      {resendState.invitationUrl &&
+      resendState.invitationId &&
+      liveInvitationIds.includes(resendState.invitationId) ? (
         <span className="w-full">
           <LienInvitation url={resendState.invitationUrl} />
         </span>
