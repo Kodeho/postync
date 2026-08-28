@@ -104,7 +104,22 @@ export type InviteFailureCode =
   | "storage_failed";
 
 export type InviteOutcome =
-  | { ok: true; invitationId: string; token: string; expiresAt: string }
+  | {
+      ok: true;
+      invitationId: string;
+      token: string;
+      expiresAt: string;
+      /**
+       * Destinataire et rôle retenus, sous leur forme NORMALISÉE.
+       *
+       * Renvoyés parce que l'appelant en a besoin pour composer le courriel —
+       * et qu'un renvoi ne les connaît pas : il les relit de l'ancienne
+       * invitation. Les redemander à l'appelant l'obligerait à refaire la
+       * normalisation, donc à la faire différemment un jour.
+       */
+      email: string;
+      role: InvitableRole;
+    }
   | { ok: false; code: InviteFailureCode; seats?: number };
 
 export type InviteDeps = {
@@ -195,7 +210,14 @@ export async function createInvitation(
     return { ok: false, code: "storage_failed" };
   }
 
-  return { ok: true, invitationId: resultat.invitation_id, token, expiresAt };
+  return {
+    ok: true,
+    invitationId: resultat.invitation_id,
+    token,
+    expiresAt,
+    email,
+    role: input.role,
+  };
 }
 
 /**

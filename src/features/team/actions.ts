@@ -3,13 +3,15 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { getSiteOrigin } from "@/lib/site-url";
 import { findMembershipBySlug } from "@/features/workspaces/resolve";
 import { listMemberships, requireUser } from "@/features/workspaces/queries";
 import { getWorkspaceAccess } from "@/server/billing/queries";
 import { createServiceClient } from "@/server/supabase/service-client";
+import { getEmailSiteOrigin } from "@/server/email/config";
+import { sendInvitationEmail } from "@/server/email/notifications";
 import {
   createInvitation,
+  normalizeEmail,
   resendInvitation,
   revokeInvitation,
   type InviteFailureCode,
@@ -65,7 +67,13 @@ const INVITE_ERRORS: Record<InviteFailureCode, (seats: number) => string> = {
 };
 
 type Autorisation =
-  | { ok: true; membership: WorkspaceMembership; actorId: string }
+  | {
+      ok: true;
+      membership: WorkspaceMembership;
+      actorId: string;
+      /** Nom affiché de l'invitant, si POSTYNC le connaît. */
+      actorName: string | null;
+    }
   | { ok: false; error: string };
 
 /** Owner et admin gèrent l'équipe ; un member consulte seulement. */
@@ -80,7 +88,22 @@ async function requireTeamManager(formData: FormData): Promise<Autorisation> {
   if (membership.role !== "owner" && membership.role !== "admin") {
     return { ok: false, error: "Seul le propriétaire ou un admin peut gérer l'équipe." };
   }
-  return { ok: true, membership, actorId: user.id };
+
+  // Le nom sert à signer l'invitation : « Untel vous invite » vaut mieux
+  // qu'une phrase impersonnelle. Il peut manquer — auquel cas le courriel se
+  // rabat sur la formulation neutre plutôt que d'annoncer « invité par null ».
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("display_name")
+    .eq("id", user.id)
+    .maybeSingle<{ display_name: string | null }>();
+
+  return {
+    ok: true,
+    membership,
+    actorId: user.id,
+    actorName: profile?.display_name?.trim() || null,
+  };
 }
 
 /**
@@ -112,6 +135,66 @@ async function roleDuMembre(
 function rafraichir(slug: string): void {
   revalidatePath(`/app/${slug}/team`);
   revalidatePath(`/app/${slug}/settings`);
+}
+
+
+/**
+ * Remet l'invitation à son destinataire.
+ *
+ * DEUX COMPORTEMENTS, UN SEUL CODE. Tant que le domaine d'envoi n'est pas
+ * authentifié chez Scaleway, la couche d'envoi répond `not_configured` et
+ * POSTYNC se rabat sur le lien à copier — le produit reste utilisable, sans
+ * drapeau à basculer ni branche à maintenir. Le jour où le domaine existe, le
+ * même code envoie le message et cesse d'afficher le lien.
+ *
+ * LE LIEN N'EST PLUS AFFICHÉ QUAND LE COURRIEL EST PARTI, et c'est voulu : le
+ * montrer inviterait à le transmettre par un autre canal, alors qu'il ne vaut
+ * que pour l'adresse destinataire.
+ *
+ * UN ÉCHEC D'ENVOI N'ANNULE PAS L'INVITATION. Elle existe en base, son lien
+ * est valide : la détruire parce qu'un service tiers est indisponible ferait
+ * perdre l'action de l'utilisateur. On lui rend le lien et on le dit.
+ */
+async function remettreInvitation(
+  membership: WorkspaceMembership,
+  invitation: { invitationId: string; token: string; expiresAt: string },
+  email: string,
+  role: string,
+  invitedByName: string | null,
+): Promise<TeamActionState> {
+  const url = `${getEmailSiteOrigin()}/invitations/${invitation.token}`;
+
+  const envoi = await sendInvitationEmail(createServiceClient(), {
+    invitationId: invitation.invitationId,
+    workspaceId: membership.workspace.id,
+    workspaceName: membership.workspace.name,
+    email,
+    role,
+    invitationUrl: url,
+    invitedByName,
+    expiresAt: invitation.expiresAt,
+  });
+
+  if (envoi.ok || envoi.code === "already_sent") {
+    return {
+      error: null,
+      notice: `Invitation envoyée à ${email}. Le lien ne fonctionne que depuis cette adresse.`,
+      invitationUrl: null,
+      invitationId: invitation.invitationId,
+    };
+  }
+
+  const raison =
+    envoi.code === "not_configured"
+      ? "L'envoi automatique n'est pas encore activé : transmettez ce lien à la personne concernée."
+      : "L'e-mail n'a pas pu être envoyé, mais l'invitation est bien créée : transmettez ce lien à la personne concernée.";
+
+  return {
+    error: null,
+    notice: `${raison} Il ne vaut que pour ${email}, et ne sera plus affiché ensuite.`,
+    invitationUrl: url,
+    invitationId: invitation.invitationId,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -169,14 +252,13 @@ export async function inviteMemberAction(
     };
   }
 
-  const origin = await getSiteOrigin();
-  return {
-    error: null,
-    notice:
-      "Invitation créée. Transmettez ce lien à la personne concernée : lui seul permet de rejoindre le workspace, et il ne sera plus affiché ensuite.",
-    invitationUrl: `${origin}/invitations/${outcome.token}`,
-    invitationId: outcome.invitationId,
-  };
+  return remettreInvitation(
+    auth.membership,
+    outcome,
+    normalizeEmail(String(formData.get("email") ?? "")),
+    role,
+    auth.actorName,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -224,14 +306,13 @@ export async function resendInvitationAction(
     };
   }
 
-  const origin = await getSiteOrigin();
-  return {
-    error: null,
-    notice:
-      "Nouveau lien émis. Le précédent ne fonctionne plus — le jeton n'étant pas conservé, renvoyer produit toujours un lien neuf.",
-    invitationUrl: `${origin}/invitations/${outcome.token}`,
-    invitationId: outcome.invitationId,
-  };
+  return remettreInvitation(
+    auth.membership,
+    outcome,
+    outcome.email,
+    outcome.role,
+    auth.actorName,
+  );
 }
 
 export async function revokeInvitationAction(

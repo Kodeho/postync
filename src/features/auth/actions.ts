@@ -6,6 +6,8 @@ import { revalidatePath } from "next/cache";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 
 import { createClient } from "@/lib/supabase/server";
+import { sendPasswordChangedEmail } from "@/server/email/notifications";
+import { createServiceClient } from "@/server/supabase/service-client";
 import { isSupabaseConfigured, requireSupabaseEnv } from "@/lib/supabase/env";
 import { safeReturnPath } from "@/lib/return-path";
 import { getSiteOrigin } from "@/lib/site-url";
@@ -151,6 +153,41 @@ export async function signInAction(
 }
 
 
+
+/**
+ * Prévient qu'un mot de passe vient de changer.
+ *
+ * CE MESSAGE N'EST PAS POUR CELUI QUI A AGI — il le sait. Il est pour celui
+ * qui n'a rien fait : c'est souvent le seul signal qu'une personne reçoit
+ * lorsqu'un tiers a pris la main sur son compte.
+ *
+ * L'ENVOI NE PEUT PAS FAIRE ÉCHOUER LE CHANGEMENT. Le mot de passe est déjà
+ * modifié quand on arrive ici ; rendre une erreur ferait croire le contraire,
+ * et l'utilisateur retenterait avec un ancien mot de passe qui ne vaut plus
+ * rien. Un échec est donc journalisé et rien de plus.
+ */
+async function prevenirDuChangement(
+  userId: string,
+  email: string | null | undefined,
+  origin: "reset" | "settings",
+): Promise<void> {
+  if (!email) return;
+  try {
+    await sendPasswordChangedEmail(createServiceClient(), {
+      userId,
+      email,
+      origin,
+      // Le fuseau du compte n'est pas connu ici : un utilisateur peut
+      // appartenir à plusieurs workspaces, aux fuseaux différents. On date
+      // donc en heure de Paris, cohérent avec le siège de l'éditeur, plutôt
+      // que d'en choisir un au hasard parmi les siens.
+      timeZone: "Europe/Paris",
+    });
+  } catch (error) {
+    toUserMessage(error, "password-changed-notice");
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Réinitialisation de mot de passe (C15)
 // ---------------------------------------------------------------------------
@@ -265,6 +302,8 @@ export async function updatePasswordAction(
     if (signOutError) {
       toUserMessage(signOutError, "reset-signout-others");
     }
+
+    await prevenirDuChangement(user.id, user.email, "reset");
   } catch (error) {
     return failure(toUserMessage(error, "reset-update"));
   }
@@ -339,6 +378,8 @@ export async function changePasswordAction(
     if (revocation) {
       toUserMessage(revocation, "password-change-signout-others");
     }
+
+    await prevenirDuChangement(user.id, user.email, "settings");
   } catch (error) {
     return failure(toUserMessage(error, "password-change"));
   }

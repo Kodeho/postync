@@ -59,6 +59,105 @@ ce chemin : elle évite d'ajouter un client SMTP aux dépendances et se comporte
 mieux en environnement sans état, où maintenir une connexion SMTP n'a pas de
 sens.
 
+## L'architecture, telle qu'elle est construite
+
+```
+src/server/email/
+  config.ts              expéditeur, reply-to, région, clé — tout depuis l'environnement
+  failure.ts             classification des échecs (pur, testé seul)
+  scaleway.ts            transport : un appel HTTP, un délai borné, rien d'autre
+  send.ts                POINT D'ENTRÉE UNIQUE : idempotence, réessai, journal
+  notifications.ts       les courriels du produit : composer + choisir la clé
+  templates/
+    layout.ts            coquille commune, HTML de messagerie + version texte
+    invitation.ts        invitation d'équipe (C14)
+    security.ts          notification de changement de mot de passe (C15)
+```
+
+**Rien n'appelle Scaleway directement.** Tout passe par `sendTransactionalEmail`,
+ce qui permet de tenir en un seul endroit les trois règles qu'on n'applique
+jamais deux fois de la même façon si on les écrit deux fois : l'idempotence, la
+politique de réessai, et ce que le journal a le droit de contenir.
+
+**Ajouter un courriel au produit** = une fonction dans `notifications.ts` et un
+gabarit à côté. Rien d'autre ne bouge.
+
+### Idempotence
+
+`email_deliveries` porte un index unique sur la clé d'idempotence, et la ligne
+est **insérée AVANT l'envoi**. Si l'insertion échoue en `23505`, un envoi pour
+cette même cause a déjà eu lieu — ou est en cours dans une autre requête — et
+rien n'est réexpédié. Vérifier puis insérer laisserait la fenêtre habituelle
+entre les deux, et une Server Action *peut* être rejouée : double clic, reprise
+réseau, nouvelle tentative du navigateur.
+
+| Courriel | Clé | Stabilité |
+| --- | --- | --- |
+| Invitation | `invitation:<id>` | parfaite — un renvoi crée une NOUVELLE invitation, donc une nouvelle clé |
+| Mot de passe modifié | `password-changed:<userId>:<minute>` | seau d'une minute — compromis assumé, pas une idempotence parfaite |
+
+### Réessai
+
+On ne réessaie que ce qui **ne dépend pas de ce qu'on a envoyé** : réseau,
+délai dépassé, 5xx, 429. Trois tentatives, attente doublée à chaque fois.
+
+Jamais de réessai sur `unauthorized` (une clé invalide le restera) ni sur
+`rejected` (une adresse refusée ou un domaine non authentifié ne se répare pas
+en insistant). Réessayer un échec définitif retarde le message d'erreur,
+consomme le quota, et peut expédier **deux fois** si la première tentative avait
+en réalité abouti.
+
+### Journal
+
+`email_deliveries` n'est accessible à aucune session — ni grant, ni politique,
+comme `oauth_states`. Elle ne stocke **ni le corps du message, ni aucun lien** :
+une invitation porte un jeton, et POSTYNC a pris soin de n'en garder que
+l'empreinte ; l'écrire dans un journal annulerait ce soin d'un trait.
+
+Les traces `console` ne portent que l'identifiant de la ligne, le nom du
+gabarit et un code d'échec. Le détail nécessaire au diagnostic vit dans la
+table, protégée.
+
+### Dégradation tant que le domaine n'existe pas
+
+Sans configuration, `sendTransactionalEmail` répond `not_configured` — ni
+erreur, ni exception : c'est l'état normal du produit aujourd'hui. Les
+invitations se rabattent alors sur le lien à copier, exactement comme avant.
+Le jour où le domaine est authentifié, **le même code** envoie le message et
+cesse d'afficher le lien. Aucun drapeau à basculer, aucune branche morte à
+maintenir.
+
+Un échec d'envoi n'annule jamais l'invitation : elle existe en base, son lien
+est valide. La détruire parce qu'un service tiers est indisponible ferait
+perdre l'action de l'utilisateur.
+
+## Configurer Supabase Auth en SMTP Scaleway — préparé, NON appliqué
+
+La confirmation d'inscription et la réinitialisation de mot de passe sont
+émises par Supabase, pas par POSTYNC : elles se règlent par configuration du
+projet, sans code.
+
+Paramètres SMTP Scaleway TEM :
+
+| Champ | Valeur |
+| --- | --- |
+| Hôte | `smtp.tem.scaleway.com` |
+| Port | `587` (STARTTLS) — aussi `465`/`2465` en TLS implicite, `25`/`2587` |
+| Utilisateur | l'**identifiant du projet** Scaleway (`SCW_PROJECT_ID`) |
+| Mot de passe | la **clé API secrète** du projet (`SCW_SECRET_KEY`) |
+| Expéditeur | une adresse du domaine **authentifié** |
+
+Source : [Setting up SMTP — documentation Scaleway](https://www.scaleway.com/en/docs/transactional-email/reference-content/smtp-configuration/).
+
+Les mêmes identifiants servent donc à l'API HTTP et au SMTP : une seule clé à
+créer, une seule à renouveler.
+
+**Ne pas appliquer avant que le domaine soit authentifié.** Une bascule
+prématurée casserait l'inscription et la récupération de mot de passe, qui
+fonctionnent aujourd'hui via le service intégré — dégradé, mais fonctionnel.
+Un SMTP personnalisé porte par ailleurs le plafond Supabase de 2 à 30 courriels
+par heure, ajustable ensuite.
+
 ## Ce qui reste à faire, et dans quel ordre
 
 1. **Choisir le domaine d'envoi.** ⛔ *Bloquant, décision en attente.*
@@ -75,4 +174,22 @@ sens.
 4. Écrire l'envoi des invitations et remplacer le lien à copier.
 5. E2E réels sur les trois courriels.
 
-Aucune de ces étapes n'est entamée : la configuration attend le domaine.
+Les étapes 4 et « couche d'envoi » sont FAITES et testées. Restent 1, 2, 3 et
+5 — toutes suspendues au domaine.
+
+### Ce qui est déjà en place
+
+- couche d'envoi centralisée, idempotente, avec réessai borné ;
+- gabarits invitation et notification de sécurité, responsive, testés ;
+- invitations C14 branchées, avec repli sur le lien tant que l'envoi est
+  indisponible ;
+- notification de changement de mot de passe branchée sur les deux chemins de
+  C15 (réinitialisation et changement depuis les paramètres) ;
+- variables d'environnement documentées dans `.env.example`.
+
+### Ce qui attend le domaine
+
+- authentification du domaine chez Scaleway (SPF, DKIM, DMARC) ;
+- adresse d'expédition définitive dans `EMAIL_FROM_ADDRESS` ;
+- bascule SMTP du projet Supabase ;
+- E2E réels sur les trois courriels.
