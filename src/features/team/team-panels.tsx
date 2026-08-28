@@ -25,6 +25,13 @@ import { IDLE_TEAM_ACTION } from "./state";
  * ne doit pas effacer le message de l'invitation qu'on vient d'émettre, ni
  * l'inverse.
  *
+ * ATTENTION AUX CLÉS. L'état d'un formulaire ne survit que tant que le
+ * composant reste monté. Renvoyer une invitation en crée une NOUVELLE ligne :
+ * une clé fondée sur l'identifiant démonterait la ligne au rafraîchissement et
+ * emporterait le lien tout juste émis — que rien ne permettrait plus de
+ * retrouver, l'ancien étant révoqué et le jeton n'étant pas conservé. Les
+ * lignes d'invitation sont donc identifiées par leur adresse.
+ *
  * Ce qui n'est PAS permis n'est pas affiché grisé sans explication : soit le
  * contrôle disparaît (un admin ne voit pas de bouton sur un propriétaire),
  * soit la raison est donnée par le serveur.
@@ -195,6 +202,11 @@ export function MemberRow({
         </form>
       ) : null}
 
+      {roleState.notice ? (
+        <span className="w-full">
+          <FormAlert tone="notice">{roleState.notice}</FormAlert>
+        </span>
+      ) : null}
       {roleState.error ? (
         <span className="w-full">
           <FormAlert tone="error">{roleState.error}</FormAlert>
@@ -257,6 +269,11 @@ export function InvitationRowActions({
         </button>
       </form>
 
+      {resendState.notice ? (
+        <span className="w-full">
+          <FormAlert tone="notice">{resendState.notice}</FormAlert>
+        </span>
+      ) : null}
       {resendState.invitationUrl ? (
         <span className="w-full">
           <LienInvitation url={resendState.invitationUrl} />

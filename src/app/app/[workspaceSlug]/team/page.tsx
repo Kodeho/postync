@@ -108,8 +108,15 @@ export default async function TeamPage({ params }: PageProps<"/app/[workspaceSlu
           </h2>
           <ul className="mt-4 flex flex-col gap-2">
             {invitationsAffichees.map((invitation) => (
+              // Clé sur l'ADRESSE, pas sur l'identifiant. Renvoyer une
+              // invitation en crée une nouvelle : la clé changerait, React
+              // démonterait la ligne, et le lien tout juste émis disparaîtrait
+              // avant d'avoir été lu. L'index unique partiel garantit au plus
+              // une invitation vivante par adresse, l'adresse est donc une
+              // identité stable — et c'est aussi ainsi que l'utilisateur voit
+              // la chose : « l'invitation de X », dont le lien est réémis.
               <InvitationRowActions
-                key={invitation.id}
+                key={invitation.email}
                 workspaceSlug={workspace.slug}
                 invitation={invitation}
               />
