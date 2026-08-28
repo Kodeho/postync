@@ -192,6 +192,26 @@ publique et irrattrapable. Le statut `pending` est celui qui existait déjà pou
 « en cours, reprenable » : le mécanisme de reprise de C8.4b s'applique sans
 code nouveau. `attempts` borne les reprises.
 
+### Vue d'ensemble (C12)
+
+`src/server/social/overview.ts` construit l'écran d'accueil. Il affichait
+jusqu'ici quatre tirets et « Aucune publication pour le moment » à un workspace
+qui en comptait huit : un premier écran qui ment apprend à l'utilisateur à ne
+pas s'y fier.
+
+L'ordre des sections n'est pas décoratif. **Ce qui exige une action vient en
+premier** — publications en échec avec leur raison, comptes dont l'autorisation
+ne fonctionne plus. Programmer sert à ne PAS surveiller ; un échec de 3 h du
+matin qui n'apparaît qu'au fond du calendrier ne serait découvert que des jours
+plus tard. Un compte inutilisable passe avant un échec constaté : il bloque
+tout ce qui vient, alors que l'échec est derrière.
+
+`buildOverview` est pure et testée : le placement au jour et au mois se fait en
+heure LOCALE, la même exigence que le calendrier. La requête borne les
+publications à la plus ancienne des deux dates utiles — début du mois pour le
+compteur mensuel, fenêtre de 14 jours pour les échecs — car ne garder que la
+seconde amputerait le compteur mensuel dès le 15.
+
 ### Publication multi-réseaux (C11)
 
 `src/server/social/broadcast.ts` tient enfin la promesse du produit : un média,
