@@ -155,6 +155,17 @@ autorité est celle de la page.
   n'est atteignable depuis aucune session. Le quota `publicationsPerMonth`
   compte les publications `scheduled` : sans cela, tout programmer suffirait à
   publier sans limite.
+- **La route du planificateur déclenche des publications : elle ne peut pas
+  être ouverte** (C10.2). Le secret partagé est GÉNÉRÉ EN BASE et vit dans
+  Vault ; les deux extrémités l'y lisent, aucune variable d'environnement n'est
+  à déployer et sa valeur n'a jamais transité par un fichier. La comparaison
+  est à temps constant — un `===` s'arrête au premier octet différent et
+  laisserait fuir, mesure après mesure, la longueur du préfixe correct. Sans
+  secret configuré, la route reste FERMÉE (503) : l'ouvrir « le temps de
+  configurer » exposerait un déclencheur de publication à tout Internet.
+- `scheduler_secret()` et `claim_stale_publications()` sont, comme
+  `claim_due_publications()`, `security definer` avec `EXECUTE` révoqué à
+  `anon` et `authenticated`.
 
 ## Sélection d'actifs (C8.4c, Pages Facebook)
 

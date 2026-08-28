@@ -478,6 +478,24 @@ personne en particulier. `security definer`, `EXECUTE` révoqué à `anon` et
 Au-delà de `p_max_attempts`, la publication bascule en `failed` avec
 `status_detail = 'too_many_attempts'` plutôt que d'être reprise sans fin.
 
+### Fonction `claim_stale_publications(p_limit, p_stale_after, p_max_attempts)` (C10.2)
+
+Réclame les publications restées `pending` pour reprise, AVEC ou SANS
+conteneur. L'absence de condition sur `container_id` est délibérée : une
+exécution morte entre la réclamation et la création du conteneur laissait
+sinon la publication hors d'atteinte de toute reprise, perdue pour toujours.
+
+L'exclusion repose sur `updated_at`, remis à `now()` par le trigger à chaque
+écriture : la ligne réclamée sort de la fenêtre pour `p_stale_after`. Le code
+applicatif ne peut pas falsifier ce marqueur — c'est ce qu'on attend d'un
+verrou.
+
+### Fonction `scheduler_secret()` (C10.2)
+
+Renvoie le secret partagé du planificateur, lu depuis Vault. `security
+definer`, `EXECUTE` révoqué à `anon` et `authenticated`, accordé au seul
+`service_role`.
+
 > `media_url` ne doit JAMAIS recevoir une URL signée ou porteuse d'un
 > identifiant d'accès. Instagram exige un média publiquement accessible ;
 > quand l'étape « media » apportera un stockage, y placer la clé de l'objet.

@@ -83,6 +83,18 @@ export type PublishRequest = {
   caption: string | null;
   coverUrl?: string | null;
   shareToFeed?: boolean;
+  /**
+   * Publication DÉJÀ existante à mener à son terme (C10.2).
+   *
+   * Le planificateur a réclamé une ligne `scheduled` et l'a fait passer en
+   * `pending` — atomiquement, c'est ce qui garantit qu'elle ne partira pas
+   * deux fois. On ne doit donc surtout pas en créer une seconde : elle
+   * porterait un quota supplémentaire et briserait la trace.
+   *
+   * Absent, le comportement est celui d'avant, inchangé : quota vérifié puis
+   * ligne créée.
+   */
+  existingPublicationId?: string | null;
 };
 
 /** D'où vient le média, une fois la source résolue. */
@@ -103,6 +115,15 @@ export type PublishDeps = {
   /** Injectable pour les tests : aucune attente réelle. */
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
+  /**
+   * Attente maximale du conteneur. Défaut : `POLL_BUDGET_MS`, inchangé.
+   *
+   * Le planificateur en demande un plus COURT (C10.2) : il traite un lot et
+   * doit rendre la main vite. Une publication non aboutie reste `pending`
+   * avec son conteneur, et le réveil suivant la reprend — jamais réenvoyée,
+   * jamais republiée.
+   */
+  pollBudgetMs?: number;
 };
 
 const CAPTION_MAX_LENGTH = 2200;
@@ -191,7 +212,7 @@ async function waitForContainer(
   const sleep = deps.sleep ?? defaultSleep;
   const now = deps.now ?? Date.now;
   const publisher = provider.publisher!;
-  const deadline = now() + POLL_BUDGET_MS;
+  const deadline = now() + (deps.pollBudgetMs ?? POLL_BUDGET_MS);
 
   let status = await publisher.containerStatus(input);
   let step = 0;
@@ -341,23 +362,29 @@ export async function publishToSocialAccount(
   }
 
   // Quota du plan, AVANT tout appel distant.
+  //
+  // Une publication programmée l'a DÉJÀ consommé à la saisie : la recompter
+  // ici la ferait échouer contre elle-même, puisqu'elle figure dans le
+  // décompte. On ne revérifie donc que pour une publication nouvelle.
   const now = deps.now ?? Date.now;
-  const { start, end } = currentMonthRange(now());
-  const [quota, { count }] = await Promise.all([
-    deps.getMonthlyQuota(request.workspaceId),
-    db
-      .from("social_publications")
-      .select("id", { count: "exact", head: true })
-      .eq("workspace_id", request.workspaceId)
-      .in("status", QUOTA_STATUSES as unknown as string[])
-      // `effective_at` et non `created_at` : une publication programmée
-      // consomme le quota du mois où elle PARAÎT, pas de celui où on l'a
-      // saisie. Colonne générée, donc toujours cohérente.
-      .gte("effective_at", start)
-      .lt("effective_at", end),
-  ]);
-  if ((count ?? 0) >= quota) {
-    return { ok: false, code: "quota_exceeded", publicationId: null };
+  if (!request.existingPublicationId) {
+    const { start, end } = currentMonthRange(now());
+    const [quota, { count }] = await Promise.all([
+      deps.getMonthlyQuota(request.workspaceId),
+      db
+        .from("social_publications")
+        .select("id", { count: "exact", head: true })
+        .eq("workspace_id", request.workspaceId)
+        .in("status", QUOTA_STATUSES as unknown as string[])
+        // `effective_at` et non `created_at` : une publication programmée
+        // consomme le quota du mois où elle PARAÎT, pas de celui où on l'a
+        // saisie. Colonne générée, donc toujours cohérente.
+        .gte("effective_at", start)
+        .lt("effective_at", end),
+    ]);
+    if ((count ?? 0) >= quota) {
+      return { ok: false, code: "quota_exceeded", publicationId: null };
+    }
   }
 
   // Source du média. Pour la médiathèque : vérification de compatibilité avec
@@ -426,27 +453,52 @@ export async function publishToSocialAccount(
   }
   const accessToken = token.accessToken;
 
-  // La ligne est créée AVANT l'appel distant : une publication réellement
-  // partie ne peut pas rester sans trace, et elle consomme le quota.
-  const { data: created, error: insertError } = await db
-    .from("social_publications")
-    .insert({
-      workspace_id: request.workspaceId,
-      social_account_id: account.id,
-      platform: account.platform,
-      provider_account_id: account.provider_account_id,
-      media_kind: request.mediaKind,
-      media_url: media.storedReference,
-      media_asset_id: media.assetId,
-      caption: request.caption,
-      requested_by: request.requestedBy,
-      status: "pending",
-    })
-    .select("id")
-    .single<{ id: string }>();
-  if (insertError || !created) {
-    console.error(`[social:publish] insert: ${insertError?.code ?? "inconnu"}`);
-    return { ok: false, code: "provider_error", publicationId: null };
+  // La ligne existe AVANT l'appel distant : une publication réellement partie
+  // ne peut pas rester sans trace, et elle consomme le quota.
+  let publicationId: string;
+
+  if (request.existingPublicationId) {
+    // Publication programmée, déjà réclamée par le planificateur. Le filtre
+    // sur `status = 'pending'` est essentiel : il n'accepte QUE la ligne que
+    // la réclamation atomique vient de nous attribuer. Si elle a été annulée,
+    // reprise ailleurs ou déjà publiée entre-temps, rien ne correspond et on
+    // s'arrête avant tout appel distant — c'est ce qui interdit la double
+    // publication jusqu'ici.
+    const { data: adoptee, error: adoptError } = await db
+      .from("social_publications")
+      .update({ media_url: media.storedReference, media_asset_id: media.assetId })
+      .eq("id", request.existingPublicationId)
+      .eq("workspace_id", request.workspaceId)
+      .eq("status", "pending")
+      .select("id")
+      .maybeSingle<{ id: string }>();
+    if (adoptError || !adoptee) {
+      console.error(`[social:publish] adoption: ${adoptError?.code ?? "ligne non réclamable"}`);
+      return { ok: false, code: "provider_error", publicationId: request.existingPublicationId };
+    }
+    publicationId = adoptee.id;
+  } else {
+    const { data: created, error: insertError } = await db
+      .from("social_publications")
+      .insert({
+        workspace_id: request.workspaceId,
+        social_account_id: account.id,
+        platform: account.platform,
+        provider_account_id: account.provider_account_id,
+        media_kind: request.mediaKind,
+        media_url: media.storedReference,
+        media_asset_id: media.assetId,
+        caption: request.caption,
+        requested_by: request.requestedBy,
+        status: "pending",
+      })
+      .select("id")
+      .single<{ id: string }>();
+    if (insertError || !created) {
+      console.error(`[social:publish] insert: ${insertError?.code ?? "inconnu"}`);
+      return { ok: false, code: "provider_error", publicationId: null };
+    }
+    publicationId = created.id;
   }
 
   let containerId: string;
@@ -463,11 +515,11 @@ export async function publishToSocialAccount(
   } catch (error) {
     const code = shortCode(error);
     console.error(`[social:publish] ${account.platform} container: ${code}`);
-    await markFailed(db, created.id, code);
-    return { ok: false, code: "provider_error", publicationId: created.id };
+    await markFailed(db, publicationId, code);
+    return { ok: false, code: "provider_error", publicationId: publicationId };
   }
 
-  await db.from("social_publications").update({ container_id: containerId }).eq("id", created.id);
+  await db.from("social_publications").update({ container_id: containerId }).eq("id", publicationId);
 
   let status: ContainerStatus;
   try {
@@ -476,11 +528,11 @@ export async function publishToSocialAccount(
     const code = shortCode(error);
     console.error(`[social:publish] ${account.platform} status: ${code}`);
     // Le conteneur existe : la ligne reste reprenable plutôt que perdue.
-    return { ok: true, publicationId: created.id, status: "pending" };
+    return { ok: true, publicationId: publicationId, status: "pending" };
   }
 
   return finishPublication(provider, deps, {
-    publicationId: created.id,
+    publicationId: publicationId,
     accessToken,
     providerAccountId: account.provider_account_id,
     containerId,

@@ -192,6 +192,33 @@ publique et irrattrapable. Le statut `pending` est celui qui existait déjà pou
 « en cours, reprenable » : le mécanisme de reprise de C8.4b s'applique sans
 code nouveau. `attempts` borne les reprises.
 
+### Exécution du planificateur (C10.2)
+
+Le plan Vercel du projet est Hobby, où les crons sont limités à UNE exécution
+par jour : inutilisable ici. C'est donc la base qui se réveille elle-même —
+`pg_cron` chaque minute, `pg_net` pour appeler `POST /api/cron/publish`.
+
+Le secret partagé vit dans Vault et les DEUX extrémités l'y lisent : le job via
+`vault.decrypted_secrets`, l'application via `scheduler_secret()` (service_role
+uniquement). Il est généré en base par `gen_random_bytes` : sa valeur ne
+transite par aucun fichier ni aucune variable d'environnement à déployer. La
+comparaison côté route est à temps constant.
+
+`src/server/social/scheduler.ts` fait deux choses à chaque réveil : publier les
+échéances dues, et REPRENDRE les publications restées en cours. La seconde est
+celle qu'on oublie — sans elle, une publication dont le conteneur n'est pas
+prêt attendrait qu'un humain clique. La reprise couvre les deux cas : conteneur
+présent (on l'interroge, le média n'est jamais renvoyé) et conteneur ABSENT
+(l'exécution est morte avant sa création : rien n'est parti, la ligne repart du
+début). Son exclusion repose sur `updated_at`, que le trigger réécrit à chaque
+écriture — le code applicatif ne peut pas la falsifier.
+
+`publishToSocialAccount` accepte `existingPublicationId` : la publication est
+menée à terme DANS la ligne déjà réclamée, jamais dans une seconde. L'adoption
+n'accepte qu'une ligne encore `pending`, ce qui interdit de publier une ligne
+annulée ou déjà partie. Le quota n'est pas recompté à l'exécution : il l'a été
+à la programmation.
+
 ### Publication (C8.4b)
 
 `src/server/social/publish.ts` orchestre la publication : contrôles

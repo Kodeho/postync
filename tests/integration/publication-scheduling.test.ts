@@ -309,26 +309,31 @@ describe.skipIf(!CONFIGURED)("C10.1 — planification", () => {
 
     // Lancés ENSEMBLE, sans attendre l'un l'autre : c'est la seule façon
     // d'éprouver réellement la concurrence.
-    const [a, b] = await Promise.all([
+    await Promise.all([
       admin.rpc("claim_due_publications", { p_limit: 10 }),
       admin.rpc("claim_due_publications", { p_limit: 10 }),
     ]);
 
-    const ids = [
-      ...((a.data ?? []) as { id: string }[]),
-      ...((b.data ?? []) as { id: string }[]),
-    ].map((r) => r.id);
-
-    // Les trois sont réclamées, chacune EXACTEMENT une fois.
-    expect(ids).toHaveLength(3);
-    expect(new Set(ids).size).toBe(3);
-
+    // L'assertion porte sur l'ÉTAT des lignes de ce workspace, pas sur ce que
+    // tel appel a renvoyé. La base est partagée et le planificateur balaie
+    // tous les workspaces par conception : une autre suite peut légitimement
+    // réclamer ces lignes en même temps.
+    //
+    // C'est d'ailleurs plus fort. `attempts` n'est incrémenté QUE par une
+    // réclamation réussie : le trouver à 1 sur chaque ligne prouve que chacune
+    // a été réclamée exactement une fois — quel que soit le nombre
+    // d'appelants, et même entre processus distincts.
     const { data: apres } = await admin
       .from("social_publications")
       .select("status, attempts")
       .eq("workspace_id", workspaceId);
-    expect(apres!.every((r) => r.status === "pending")).toBe(true);
+    expect(apres).toHaveLength(3);
     expect(apres!.every((r) => r.attempts === 1)).toBe(true);
+    // Le STATUT, lui, a pu avancer : un autre réclamant légitime peut avoir
+    // mené la publication plus loin. Ce qui est interdit, c'est qu'une ligne
+    // reste `scheduled` — elle aurait alors échappé aux deux appels — ou
+    // qu'elle porte plus d'une réclamation.
+    expect(apres!.some((r) => r.status === "scheduled")).toBe(false);
   }, 60_000);
 
   it("une échéance future n'est pas réclamée", async () => {
