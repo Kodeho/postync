@@ -478,6 +478,9 @@ d'avance et se distingue de celui de la confirmation d'inscription.
   heure, « best-effort », et le déclare inadapté à la production. Confirmation
   d'inscription et récupération de mot de passe en dépendent aujourd'hui. Un
   SMTP dédié est un PRÉREQUIS de mise en production, pas une amélioration.
+  Fournisseur retenu : **Scaleway TEM** (voir `docs/EMAIL.md`). Configuration
+  en attente du domaine d'envoi — `postync.vercel.app` ne peut porter ni SPF
+  ni DKIM, sa zone DNS ne nous appartenant pas.
 - **Protection contre les mots de passe compromis** : désactivée sur le projet
   (`auth_leaked_password_protection`). Supabase sait vérifier un nouveau mot de
   passe contre HaveIBeenPwned ; à activer dans le tableau de bord. Le message
