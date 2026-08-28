@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { shouldDiscloseResetError } from "@/features/auth/reset-disclosure";
-import { validateEmailOnly, validateNewPassword, PASSWORD_MIN_LENGTH } from "@/features/auth/validation";
+import {
+  validateEmailOnly,
+  validateNewPassword,
+  validatePasswordChange,
+  PASSWORD_MIN_LENGTH,
+} from "@/features/auth/validation";
 
 function form(entries: Record<string, string>): FormData {
   const data = new FormData();
@@ -78,5 +83,47 @@ describe("validation du nouveau mot de passe", () => {
         form({ password: "motdepasse-solide", confirmPassword: "motdepasse-solide" }),
       ),
     ).toEqual({ ok: true, value: { password: "motdepasse-solide" } });
+  });
+});
+
+describe("changement de mot de passe en étant connecté", () => {
+  const solide = "motdepasse-solide";
+
+  it("exige le mot de passe actuel", () => {
+    // Sans lui, une session laissée ouverte sur un poste partagé suffirait à
+    // s'approprier définitivement le compte.
+    const resultat = validatePasswordChange(
+      form({ password: solide, confirmPassword: solide }),
+    );
+    expect(resultat).toEqual({
+      ok: false,
+      error: "Veuillez saisir votre mot de passe actuel.",
+    });
+  });
+
+  it("refuse de remplacer un mot de passe par lui-même", () => {
+    const resultat = validatePasswordChange(
+      form({ currentPassword: solide, password: solide, confirmPassword: solide }),
+    );
+    expect(resultat.ok).toBe(false);
+  });
+
+  it("applique les mêmes exigences de longueur qu'ailleurs", () => {
+    const court = "a".repeat(PASSWORD_MIN_LENGTH - 1);
+    const resultat = validatePasswordChange(
+      form({ currentPassword: "ancien-mot-de-passe", password: court, confirmPassword: court }),
+    );
+    expect(resultat.ok).toBe(false);
+  });
+
+  it("accepte un changement complet et cohérent", () => {
+    expect(
+      validatePasswordChange(
+        form({ currentPassword: "ancien-mot-de-passe", password: solide, confirmPassword: solide }),
+      ),
+    ).toEqual({
+      ok: true,
+      value: { currentPassword: "ancien-mot-de-passe", password: solide },
+    });
   });
 });

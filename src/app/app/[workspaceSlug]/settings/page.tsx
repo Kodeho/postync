@@ -8,6 +8,7 @@ import {
   RenameWorkspaceForm,
   TimeZoneForm,
 } from "@/features/settings/settings-forms";
+import { ChangePasswordForm } from "@/features/auth/password-forms";
 import { WORKSPACE_ROLE_LABELS } from "@/features/workspaces/display";
 import { getWorkspaceContext } from "@/features/workspaces/context";
 
@@ -101,6 +102,17 @@ export default async function SettingsPage({
             <dt className="text-muted">Adresse e-mail</dt>
             <dd className="font-medium text-foreground">{user.email ?? "—"}</dd>
           </dl>
+        </Panel>
+
+        <Panel as="section" aria-labelledby="settings-password" id="mot-de-passe" className="p-6">
+          <h2 id="settings-password" className="text-base font-semibold text-foreground">
+            Mot de passe
+          </h2>
+          <p className="mt-1 text-sm text-muted">
+            Changer votre mot de passe demande de saisir l&apos;actuel : une session
+            laissée ouverte ne doit pas suffire à s&apos;approprier le compte.
+          </p>
+          <ChangePasswordForm />
         </Panel>
       </div>
     </div>

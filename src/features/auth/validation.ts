@@ -27,6 +27,11 @@ export type NewPasswordInput = {
   password: string;
 };
 
+export type PasswordChangeInput = {
+  currentPassword: string;
+  password: string;
+};
+
 function normalizeEmail(raw: string): string {
   return raw.trim().toLowerCase();
 }
@@ -117,6 +122,36 @@ export function validateNewPassword(form: FormData): Validated<NewPasswordInput>
   }
 
   return { ok: true, value: { password } };
+}
+
+/**
+ * Changement de mot de passe par quelqu'un qui connaît le sien.
+ *
+ * Le mot de passe ACTUEL est exigé, et c'est le point important : sans lui,
+ * une session laissée ouverte sur un poste partagé suffirait à s'approprier
+ * définitivement le compte, en changeant le mot de passe et en révoquant les
+ * autres sessions. La vérification du mot de passe actuel est ce qui distingue
+ * « la personne est devant l'écran » de « quelqu'un a trouvé l'écran ».
+ */
+export function validatePasswordChange(form: FormData): Validated<PasswordChangeInput> {
+  const currentPassword = String(form.get("currentPassword") ?? "");
+  if (currentPassword.length === 0) {
+    return { ok: false, error: "Veuillez saisir votre mot de passe actuel." };
+  }
+
+  const nouveau = validateNewPassword(form);
+  if (!nouveau.ok) {
+    return nouveau;
+  }
+
+  if (nouveau.value.password === currentPassword) {
+    return {
+      ok: false,
+      error: "Le nouveau mot de passe doit être différent de l'actuel.",
+    };
+  }
+
+  return { ok: true, value: { currentPassword, password: nouveau.value.password } };
 }
 
 export function validateLogin(form: FormData): Validated<LoginInput> {

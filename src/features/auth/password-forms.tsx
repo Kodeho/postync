@@ -7,7 +7,11 @@ import { FormAlert } from "@/components/ui/form-alert";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { TextField } from "@/components/ui/text-field";
 
-import { requestPasswordResetAction, updatePasswordAction } from "./actions";
+import {
+  changePasswordAction,
+  requestPasswordResetAction,
+  updatePasswordAction,
+} from "./actions";
 import { EMPTY_AUTH_STATE } from "./state";
 import { PASSWORD_MIN_LENGTH } from "./validation";
 
@@ -102,6 +106,52 @@ export function ResetPasswordForm() {
 
       <p className="text-xs text-muted">
         Vos autres sessions ouvertes seront fermées.
+      </p>
+    </form>
+  );
+}
+
+/**
+ * Changement de mot de passe depuis les paramètres, en étant connecté.
+ *
+ * Le mot de passe ACTUEL est demandé. Sans lui, une session laissée ouverte
+ * sur un poste partagé suffirait à s'approprier le compte définitivement.
+ */
+export function ChangePasswordForm() {
+  const [state, formAction] = useActionState(changePasswordAction, EMPTY_AUTH_STATE);
+
+  return (
+    <form action={formAction} className="mt-4 flex max-w-md flex-col gap-4">
+      {state.error ? <FormAlert tone="error">{state.error}</FormAlert> : null}
+      {state.notice ? <FormAlert tone="notice">{state.notice}</FormAlert> : null}
+
+      <TextField
+        label="Mot de passe actuel"
+        name="currentPassword"
+        type="password"
+        autoComplete="current-password"
+      />
+      <TextField
+        label="Nouveau mot de passe"
+        name="password"
+        type="password"
+        autoComplete="new-password"
+        minLength={PASSWORD_MIN_LENGTH}
+        hint={`${PASSWORD_MIN_LENGTH} caractères minimum.`}
+      />
+      <TextField
+        label="Confirmer le nouveau mot de passe"
+        name="confirmPassword"
+        type="password"
+        autoComplete="new-password"
+        minLength={PASSWORD_MIN_LENGTH}
+      />
+
+      <div className="flex items-center gap-3">
+        <SubmitButton label="Changer le mot de passe" pendingLabel="Enregistrement…" />
+      </div>
+      <p className="text-xs text-muted">
+        Vos autres sessions ouvertes seront fermées ; celle-ci restera active.
       </p>
     </form>
   );

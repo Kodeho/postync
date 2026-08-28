@@ -3,8 +3,10 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+
 import { createClient } from "@/lib/supabase/server";
-import { isSupabaseConfigured } from "@/lib/supabase/env";
+import { isSupabaseConfigured, requireSupabaseEnv } from "@/lib/supabase/env";
 import { safeReturnPath } from "@/lib/return-path";
 import { getSiteOrigin } from "@/lib/site-url";
 
@@ -16,6 +18,7 @@ import {
   validateEmailOnly,
   validateLogin,
   validateNewPassword,
+  validatePasswordChange,
   validateSignup,
 } from "./validation";
 
@@ -268,6 +271,83 @@ export async function updatePasswordAction(
 
   revalidatePath("/", "layout");
   redirect("/app");
+}
+
+
+/**
+ * Changement de mot de passe par quelqu'un déjà connecté (C15).
+ *
+ * POURQUOI EXIGER LE MOT DE PASSE ACTUEL. `updateUser` ne le demande pas : une
+ * session ouverte suffit. Sur un poste partagé, un écran resté déverrouillé
+ * permettrait donc de s'approprier définitivement le compte — changer le mot
+ * de passe, révoquer les autres sessions, et le propriétaire légitime se
+ * retrouverait dehors. La vérification distingue « la personne est devant
+ * l'écran » de « quelqu'un a trouvé l'écran ».
+ *
+ * LA VÉRIFICATION SE FAIT SUR UN CLIENT JETABLE, sans cookies. Utiliser le
+ * client de la session réécrirait ses jetons au passage : un mot de passe
+ * actuel erroné n'a aucune raison de perturber la session en cours.
+ */
+export async function changePasswordAction(
+  _prevState: AuthFormState,
+  formData: FormData,
+): Promise<AuthFormState> {
+  if (!isSupabaseConfigured()) {
+    return NOT_CONFIGURED_STATE;
+  }
+
+  const parsed = validatePasswordChange(formData);
+  if (!parsed.ok) {
+    return failure(parsed.error);
+  }
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user?.email) {
+      return failure("Votre session a expiré. Reconnectez-vous.");
+    }
+
+    const { url, anonKey } = requireSupabaseEnv();
+    const verificateur = createSupabaseClient(url, anonKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+
+    const { error: mauvais } = await verificateur.auth.signInWithPassword({
+      email: user.email,
+      password: parsed.value.currentPassword,
+    });
+    if (mauvais) {
+      // Message volontairement identique quelle que soit la raison du refus :
+      // c'est le compte de la personne connectée, il n'y a rien à divulguer,
+      // mais rien à détailler non plus.
+      toUserMessage(mauvais, "password-change-verify");
+      return failure("Mot de passe actuel incorrect.");
+    }
+
+    const { error } = await supabase.auth.updateUser({ password: parsed.value.password });
+    if (error) {
+      return failure(toUserMessage(error, "password-change"));
+    }
+
+    // Même raisonnement qu'après une réinitialisation : on change souvent de
+    // mot de passe parce qu'on soupçonne un accès indésirable.
+    const { error: revocation } = await supabase.auth.signOut({ scope: "others" });
+    if (revocation) {
+      toUserMessage(revocation, "password-change-signout-others");
+    }
+  } catch (error) {
+    return failure(toUserMessage(error, "password-change"));
+  }
+
+  return {
+    error: null,
+    notice:
+      "Mot de passe modifié. Vos autres sessions ont été fermées ; celle-ci reste ouverte.",
+  };
 }
 
 /**
