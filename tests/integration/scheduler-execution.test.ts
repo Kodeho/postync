@@ -20,7 +20,11 @@ import { resolve } from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import type { ContainerStatus, SocialProvider } from "@/server/social/providers/types";
+import {
+  SocialPublishError,
+  type ContainerStatus,
+  type SocialProvider,
+} from "@/server/social/providers/types";
 import { schedulePublication } from "@/server/social/schedule";
 import { runScheduler, type SchedulerDeps } from "@/server/social/scheduler";
 import { vaultStore } from "@/server/social/vault";
@@ -56,7 +60,12 @@ type Compteurs = { creations: number; publications: number };
 
 function fakeProvider(
   compteurs: Compteurs,
-  options: { status?: ContainerStatus; echouerALaCreation?: boolean } = {},
+  options: {
+    status?: ContainerStatus;
+    echouerALaCreation?: boolean;
+    /** Détail exact renvoyé par la plateforme, tel que le construit le provider. */
+    detailEchec?: string;
+  } = {},
 ): SocialProvider {
   return {
     platform: "facebook",
@@ -70,6 +79,9 @@ function fakeProvider(
       supportedMediaKinds: ["reel"] as const,
       async createContainer() {
         compteurs.creations += 1;
+        if (options.detailEchec) {
+          throw new SocialPublishError("http_400", options.detailEchec);
+        }
         if (options.echouerALaCreation) {
           throw new Error("refus simulé de la plateforme");
         }
@@ -327,36 +339,52 @@ describe.skipIf(!CONFIGURED)("C10.2 — exécution du planificateur", () => {
   // Reprise
   // -------------------------------------------------------------------------
 
-  it("conteneur pas prêt : reste en cours, puis REPRIS sans renvoyer le média", async () => {
+  it("REPRISE : le média n'est JAMAIS renvoyé, seul le conteneur est repris", async () => {
     await purge();
-    await programmerPuisRendreDue("C10.2 — reprise");
+    // La ligne est posée directement en `pending` AVEC son conteneur : c'est
+    // l'état exact d'une publication dont le transcodage n'était pas terminé
+    // au réveil précédent.
+    //
+    // Elle n'est PAS `scheduled`, donc invisible pour la réclamation des
+    // échéances — y compris celle du planificateur de PRODUCTION, qui balaie
+    // la même base toutes les minutes. Et son `updated_at` étant frais, la
+    // fenêtre de reprise de production (3 minutes) ne l'atteint pas non plus.
+    const { data: inserted } = await admin
+      .from("social_publications")
+      .insert({
+        workspace_id: workspaceId,
+        social_account_id: accountId,
+        platform: "facebook",
+        provider_account_id: "1290000000000102",
+        media_kind: "reel",
+        media_url: "https://cdn.example.com/deja-transferee.mp4",
+        caption: "C10.2 — reprise",
+        status: "pending",
+        container_id: "container-deja-cree",
+        scheduled_at: new Date(Date.now() - 5 * 60_000).toISOString(),
+        requested_by: ownerId,
+      })
+      .select("id")
+      .single();
+    const id = (inserted as { id: string }).id;
+
     const compteurs: Compteurs = { creations: 0, publications: 0 };
-
-    // Premier réveil : le conteneur n'est pas prêt.
-    const premier = await runScheduler(
-      deps(fakeProvider(compteurs, { status: "processing" })),
-    );
-    expect(premier.stillPending).toBe(1);
-    let rows = await lignes();
-    expect(rows[0].status).toBe("pending");
-    expect(rows[0].container_id).toBe("container-1");
-    expect(compteurs.publications).toBe(0);
-
-    // On ne peut PAS vieillir la ligne : le trigger `set_updated_at` réécrit
-    // `updated_at` à chaque écriture — c'est ce qui rend le verrou infalsifiable
-    // depuis le code. On réduit donc la fenêtre plutôt que de truquer l'horloge.
-    const second = await runScheduler({
+    const rapport = await runScheduler({
       ...deps(fakeProvider(compteurs)),
       staleAfter: "0 seconds",
     });
-    expect(second.resumed).toBe(1);
-    expect(second.published).toBe(1);
 
-    rows = await lignes();
+    expect(rapport.resumed).toBeGreaterThanOrEqual(1);
+
+    const rows = await lignes();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].id).toBe(id);
     expect(rows[0].status).toBe("published");
-    // LE POINT : un seul conteneur créé au total. Le média n'a pas été
-    // renvoyé, la reprise a bien repris.
-    expect(compteurs.creations).toBe(1);
+
+    // LE POINT DE CE TEST : AUCUN conteneur créé. Le média n'a pas été
+    // renvoyé — on a repris celui qui existait. C'est ce qui distingue une
+    // reprise d'une republication, et ce qui évite un doublon chez Meta.
+    expect(compteurs.creations).toBe(0);
     expect(compteurs.publications).toBe(1);
   }, 60_000);
 
@@ -388,6 +416,67 @@ describe.skipIf(!CONFIGURED)("C10.2 — exécution du planificateur", () => {
     expect(compteurs.creations).toBe(1);
     expect(compteurs.publications).toBe(1);
   }, 60_000);
+
+  // -------------------------------------------------------------------------
+  // Statut du compte face à un refus de la plateforme
+  // -------------------------------------------------------------------------
+
+  async function statutDuCompte() {
+    const { data } = await admin
+      .from("social_accounts")
+      .select("status, status_detail")
+      .eq("id", accountId)
+      .single();
+    return data as { status: string; status_detail: string | null };
+  }
+
+  it("autorisation réellement invalide : le compte cesse d'afficher « Connecté »", async () => {
+    await purge();
+    await programmerPuisRendreDue("C10.2b — jeton mort");
+    const compteurs: Compteurs = { creations: 0, publications: 0 };
+
+    // Forme EXACTE produite par le provider Meta : type/code/sous-code.
+    // 190 est le code canonique de « ce jeton n'est plus valable ».
+    await runScheduler(
+      deps(
+        fakeProvider(compteurs, {
+          detailEchec: "facebook video_reels start: HTTP 400 OAuthException/190/463",
+        }),
+      ),
+    );
+
+    const compte = await statutDuCompte();
+    expect(compte.status).toBe("revoked");
+    expect(compte.status_detail).toBe("publish_auth_invalid");
+    // La publication, elle, est en échec — pas laissée en attente.
+    expect((await lignes())[0].status).toBe("failed");
+
+    await admin
+      .from("social_accounts")
+      .update({ status: "active", status_detail: null })
+      .eq("id", accountId);
+  }, 60_000);
+
+  it("panne passagère ou blocage applicatif : le compte reste intact", async () => {
+    // Le contresens à éviter absolument. Le 2026-08-27, les deux apps Meta
+    // étaient bloquées (OAuthException/200) alors que les autorisations des
+    // comptes étaient parfaitement valides : tout est reparti sans aucune
+    // reconnexion. Déclasser aurait envoyé le propriétaire reconnecter des
+    // comptes sains, sans rien changer au problème.
+    for (const detail of [
+      "facebook rupload: HTTP 503",
+      "facebook video_reels start: HTTP 400 OAuthException/200",
+      "facebook video_reels start: HTTP 400 OAuthException/4",
+    ]) {
+      await purge();
+      await programmerPuisRendreDue(`C10.2b — ${detail}`);
+      await runScheduler(deps(fakeProvider({ creations: 0, publications: 0 }, { detailEchec: detail })));
+
+      const compte = await statutDuCompte();
+      expect(compte.status, detail).toBe("active");
+      expect(compte.status_detail, detail).toBeNull();
+    }
+  }, 90_000);
 
   // -------------------------------------------------------------------------
   // Isolation et quota

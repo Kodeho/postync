@@ -11,6 +11,7 @@ import {
 import { signMediaUrl } from "@/server/media/library";
 import { checkMediaForPlatform } from "@/server/media/rules";
 
+import { classifyFailure } from "./failure";
 import { getUsableAccessToken } from "./token";
 
 /**
@@ -189,6 +190,34 @@ function shortCode(error: unknown): string {
   return "provider_error";
 }
 
+/**
+ * Détail construit par le provider (`type/code/sous-code`), seul porteur de
+ * l'information permettant de distinguer un jeton mort d'une panne passagère.
+ * Il sert UNIQUEMENT à classer : ce qui est enregistré reste le code court.
+ */
+function failureDetail(error: unknown): string {
+  return error instanceof Error ? error.message : "";
+}
+
+/**
+ * Un compte dont la plateforme refuse l'autorisation ne doit pas continuer à
+ * afficher « Connecté ». On ne déclasse QUE sur un signal non ambigu : une
+ * panne passagère ou un blocage applicatif laisseraient le compte intact.
+ */
+async function markAccountRevokedIfNeeded(
+  db: SupabaseClient,
+  accountId: string,
+  platform: string,
+  detail: string,
+): Promise<void> {
+  if (classifyFailure(detail) !== "auth_revoked") return;
+  console.error(`[social:publish] ${platform}: autorisation invalide, compte a reconnecter`);
+  await db
+    .from("social_accounts")
+    .update({ status: "revoked", status_detail: "publish_auth_invalid" })
+    .eq("id", accountId);
+}
+
 async function markFailed(
   db: SupabaseClient,
   publicationId: string,
@@ -233,6 +262,9 @@ async function finishPublication(
   deps: PublishDeps,
   input: {
     publicationId: string;
+    /** Ligne `social_accounts` : nécessaire pour déclasser le compte si la
+     * plateforme refuse l'autorisation à cette étape. */
+    accountId: string;
     accessToken: string;
     providerAccountId: string;
     containerId: string;
@@ -279,6 +311,12 @@ async function finishPublication(
       const code = shortCode(error);
       console.error(`[social:publish] ${provider.platform} media_publish: ${code}`);
       await markFailed(deps.db, publicationId, code);
+      await markAccountRevokedIfNeeded(
+        deps.db,
+        input.accountId,
+        provider.platform,
+        failureDetail(error),
+      );
       return { ok: false, code: "provider_error", publicationId };
     }
   }
@@ -516,6 +554,7 @@ export async function publishToSocialAccount(
     const code = shortCode(error);
     console.error(`[social:publish] ${account.platform} container: ${code}`);
     await markFailed(db, publicationId, code);
+    await markAccountRevokedIfNeeded(db, account.id, account.platform, failureDetail(error));
     return { ok: false, code: "provider_error", publicationId: publicationId };
   }
 
@@ -533,6 +572,7 @@ export async function publishToSocialAccount(
 
   return finishPublication(provider, deps, {
     publicationId: publicationId,
+    accountId: account.id,
     accessToken,
     providerAccountId: account.provider_account_id,
     containerId,
@@ -617,6 +657,7 @@ export async function resumePublication(
 
   return finishPublication(provider, deps, {
     publicationId: publication.id,
+    accountId: account.id,
     accessToken,
     providerAccountId: publication.provider_account_id,
     containerId: publication.container_id,

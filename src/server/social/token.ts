@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { classifyFailure } from "./failure";
 import type { SocialProvider, TokenSet } from "./providers/types";
 import { vaultDelete, vaultRead, vaultStore } from "./vault";
 
@@ -44,11 +45,17 @@ export type TokenDeps = {
   now?: () => number;
 };
 
-/** Un refus définitif de la plateforme, distingué d'une panne passagère. */
+/**
+ * Un refus définitif de la plateforme, distingué d'une panne passagère.
+ *
+ * La règle vit dans `failure.ts`, partagée avec la publication : le même
+ * signal doit produire le même verdict, qu'il survienne au renouvellement du
+ * jeton ou à l'envoi d'un média. L'ancienne version cherchait `190` n'importe
+ * où dans le message — elle aurait pris un identifiant contenant « 190 » pour
+ * une révocation.
+ */
 function isRevocation(message: string): boolean {
-  // `invalid_grant` est la réponse OAuth standard quand l'autorisation a été
-  // retirée ou que le jeton n'est plus reconnu.
-  return /invalid_grant|invalid_token|revoked|190/i.test(message);
+  return classifyFailure(message) === "auth_revoked";
 }
 
 async function markNeedsReconnect(

@@ -166,6 +166,23 @@ autorité est celle de la page.
 - `scheduler_secret()` et `claim_stale_publications()` sont, comme
   `claim_due_publications()`, `security definer` avec `EXECUTE` révoqué à
   `anon` et `authenticated`.
+- **Un compte dont la plateforme refuse l'autorisation cesse d'afficher
+  « Connecté »** (C10.2b). Constaté en conditions réelles le 2026-08-28 :
+  Facebook et Instagram rejetaient tous les appels et l'interface affirmait
+  que tout allait bien — la publication programmée échouait sans que rien ne
+  l'explique. La règle vit dans `src/server/social/failure.ts`, partagée par
+  la publication et le renouvellement de jeton : le même signal doit produire
+  le même verdict.
+
+  Elle est délibérément CONSERVATRICE. On ne déclasse que sur un signal non
+  ambigu — Meta `OAuthException/190`, `invalid_grant`, `invalid_token`,
+  `access_token_invalid`. Les 5xx, les limitations de débit et les blocages au
+  niveau de l'APPLICATION (Meta `OAuthException/200`, « API access blocked. »)
+  laissent le compte intact : le 2026-08-27, les deux apps Meta étaient
+  bloquées alors que les autorisations des comptes étaient parfaitement
+  valides, et tout est reparti sans aucune reconnexion. Déclasser aurait
+  envoyé le propriétaire reconnecter des comptes sains. Un faux négatif coûte
+  un message d'erreur ; un faux positif coûte la confiance dans l'indicateur.
 
 ## Sélection d'actifs (C8.4c, Pages Facebook)
 
