@@ -423,14 +423,65 @@ passe incorrect » : le message est identique dans les deux cas.
 l'utilisateur est renvoyé vers `/login`. La confirmation n'est jamais
 contournée.
 
-Le paramètre `?next=` est filtré : seuls les chemins internes sont acceptés
-(`//hôte` est rejeté), ce qui ferme la redirection ouverte.
+Le paramètre `?next=` est filtré par `safeReturnPath` (`src/lib/return-path.ts`),
+la **même** règle que celle appliquée à la connexion et à l'inscription. Cette
+route recevant ce paramètre depuis un COURRIEL, c'est exactement la situation
+d'une redirection ouverte : rediriger vers une valeur non contrôlée juste après
+l'ouverture d'une session, au moment précis où présenter une fausse page de
+connexion est le plus rentable. Sont rejetés : les URL absolues, `//hôte`,
+`/\hôte` (lu comme `//` par certains navigateurs), les préfixes de schéma, les
+caractères de contrôle et les valeurs démesurées. Testé dans
+`tests/return-path.test.ts`.
+
+## Mot de passe (C15)
+
+### Récupération
+
+Le formulaire `/forgot-password` est PUBLIC. Sa réponse est **constante**,
+que l'adresse existe ou non : répondre « compte inconnu » en ferait un oracle
+permettant d'énumérer la clientèle. La règle vit seule dans
+`src/features/auth/reset-disclosure.ts` et est testée exhaustivement — un code
+ajouté par mégarde à la liste des erreurs divulgables fait échouer le test.
+
+Unique exception : les limites de débit, qui ne dépendent pas de l'adresse
+saisie et dont le silence coûterait quelque chose (la personne attendrait un
+courriel que Supabase a refusé d'envoyer, puis recommencerait).
+
+Le lien de récupération ouvre une session — c'est le fonctionnement de
+Supabase — mais atterrit sur `/reset-password` via `next`, jamais dans
+l'application : sans cela, un « lien de réinitialisation » serait un lien de
+connexion déguisé. Le jeton est à usage unique et les autres sessions sont
+révoquées après le changement.
+
+### Changement par quelqu'un de connecté
+
+`/app/<slug>/settings` exige le mot de passe ACTUEL. `updateUser` ne le demande
+pas : une session ouverte lui suffit. Sur un poste partagé, un écran resté
+déverrouillé permettrait donc de s'approprier le compte définitivement. La
+vérification se fait sur un client **jetable**, sans cookies : un mot de passe
+actuel erroné n'a aucune raison de perturber la session en cours.
+
+### Piège connu — PKCE et navigateur
+
+Le lien porte un vérificateur déposé dans un cookie du navigateur QUI A FAIT LA
+DEMANDE. L'ouvrir ailleurs (webmail d'un téléphone, autre profil) échoue avec
+`flow_state_expired` sans que rien ne soit cassé. Le message d'échec le dit
+d'avance et se distingue de celui de la confirmation d'inscription.
 
 ## Points ouverts
 
 - Jetons OAuth des plateformes sociales : chiffrement au repos à définir.
-- Gestion des membres, transfert de propriété et suppression de workspace :
-  RPC `security definer` à écrire (le modèle de sécurité les attend).
+- Gestion des membres : FAITE (C14) — invitations à empreinte seule, quotas de
+  sièges sous verrou, sortie volontaire. Restent le transfert de propriété et
+  la suppression de workspace.
+- **Service d'e-mail** : Supabase limite son service intégré à 2 courriels par
+  heure, « best-effort », et le déclare inadapté à la production. Confirmation
+  d'inscription et récupération de mot de passe en dépendent aujourd'hui. Un
+  SMTP dédié est un PRÉREQUIS de mise en production, pas une amélioration.
+- **Protection contre les mots de passe compromis** : désactivée sur le projet
+  (`auth_leaked_password_protection`). Supabase sait vérifier un nouveau mot de
+  passe contre HaveIBeenPwned ; à activer dans le tableau de bord. Le message
+  `weak_password` est déjà traduit côté application.
 - Limites de création de workspaces : à brancher sur le futur module billing
   (`CanCreateWorkspace?`) avant l'appel à `create_workspace()`.
 - Limitation de débit applicative : seul le rate limit natif Supabase agit.
