@@ -63,6 +63,22 @@ async function profileOf(id: string) {
   return data as { platform_role: string; account_status: string };
 }
 
+/**
+ * Super_admin ACTIFS dans toute la base, fixtures comprises.
+ *
+ * Le garde-fou « il en reste toujours un » est global : il ne connaît pas la
+ * notion de fixture. Le test doit donc compter ce qui existe réellement, et
+ * non supposer qu'il est seul au monde.
+ */
+async function superAdminsActifs(): Promise<number> {
+  const { count } = await admin
+    .from("profiles")
+    .select("id", { count: "exact", head: true })
+    .eq("platform_role", "super_admin")
+    .eq("account_status", "active");
+  return count ?? 0;
+}
+
 async function auditFor(targetId: string) {
   const { data } = await admin
     .from("admin_audit_logs")
@@ -260,10 +276,39 @@ describe.skipIf(!CONFIGURED)("C6 — administration Kodeho (API réelle)", () =>
     const demote = await as.super1.rpc("admin_set_platform_role", { p_user_id: ids.super2, p_role: "admin" });
     expect(demote.error).toBeNull();
 
-    // Dernier super_admin : démission refusée, suspension par quiconque refusée.
+    // CE QUE CE TEST PEUT ET NE PEUT PAS PROUVER ICI.
+    //
+    // Le garde-fou est GLOBAL : il refuse la rétrogradation qui laisserait la
+    // base sans aucun super_admin actif. Depuis l'amorçage de C6, ce projet
+    // possède un super_admin RÉEL et permanent — le compte de l'éditeur — que
+    // les fixtures n'ont évidemment pas le droit de toucher. Tant qu'il
+    // existe, super1 n'est jamais « le dernier », et sa démission est
+    // parfaitement légitime.
+    //
+    // Le test constate donc l'état réel plutôt que de le supposer. Supposer
+    // aurait donné ce qui s'est produit le 2026-08-29 : un échec au moment où
+    // un vrai super_admin est apparu, sans qu'aucune régression n'ait eu lieu.
+    const autres = (await superAdminsActifs()) - 1; // hors super1 lui-même
     const last = await as.super1.rpc("admin_set_platform_role", { p_user_id: ids.super1, p_role: "admin" });
-    expect(last.error?.code).toBe(CHECK_VIOLATION);
-    expect((await profileOf(ids.super1)).platform_role).toBe("super_admin");
+
+    if (autres === 0) {
+      // Cas nominal d'un projet vierge : super1 EST le dernier, refus attendu.
+      expect(last.error?.code).toBe(CHECK_VIOLATION);
+      expect((await profileOf(ids.super1)).platform_role).toBe("super_admin");
+    } else {
+      // Un super_admin réel subsiste : la démission passe, et c'est correct.
+      expect(last.error).toBeNull();
+      const { error } = await admin
+        .from("profiles")
+        .update({ platform_role: "super_admin" })
+        .eq("id", ids.super1);
+      expect(error).toBeNull();
+    }
+
+    // L'INVARIANT, lui, vaut dans tous les cas et c'est le vrai sujet :
+    // la base ne se retrouve JAMAIS sans super_admin actif.
+    expect(await superAdminsActifs()).toBeGreaterThanOrEqual(1);
+
     const suspendLast = await as.super2.rpc("admin_set_account_status", { p_user_id: ids.super1, p_status: "suspended" });
     expect(suspendLast.error?.code).toBe(DENIED); // super2 n'est plus qu'admin
 
