@@ -158,18 +158,75 @@ fonctionnent aujourd'hui via le service intégré — dégradé, mais fonctionne
 Un SMTP personnalisé porte par ailleurs le plafond Supabase de 2 à 30 courriels
 par heure, ajustable ensuite.
 
+## Le domaine d'envoi : postync.app
+
+Acheté le 2026-08-29. **Zone DNS gérée chez IONOS**, pas chez Scaleway — les
+enregistrements se posent donc à la main dans l'espace client IONOS.
+
+Domaine déclaré dans Scaleway TEM (projet Postync, région `fr-par`) :
+identifiant `36bbe716-34bf-4fc3-ba52-a5bda7dbd599`.
+
+### CE QUI EXISTAIT AVANT, et qu'il ne faut pas écraser
+
+| Enregistrement | Valeur | Rôle |
+| --- | --- | --- |
+| MX | `mx00.ionos.fr`, `mx01.ionos.fr` (priorité 10) | **la messagerie IONOS du domaine** |
+| TXT (SPF) | `v=spf1 include:_spf-eu.ionos.com ~all` | autorise IONOS à envoyer |
+| TXT (`_dmarc`) | `v=DMARC1; p=none;` | déjà en place |
+
+### LA DÉCISION QUI COMPTE : ne PAS ajouter le MX que Scaleway propose
+
+L'écran « DNS Records » de Scaleway liste un enregistrement
+`MX 10 blackhole.tem.scaleway.com.`. **Il ne doit pas être posé sur ce
+domaine.**
+
+La documentation Scaleway est explicite : le MX blackhole ne sert qu'aux
+domaines qui n'ont PAS de serveur de messagerie — « Scaleway recommends using
+your own MX server if you have one » — et les messages qui y parviennent sont
+« lost and unrecoverable ».
+
+Or `postync.app` a déjà ses MX IONOS, à la **même priorité 10**. Les ajouter
+côte à côte ferait alterner les serveurs receveurs : environ la moitié du
+courrier entrant partirait dans le trou noir de Scaleway, **silencieusement et
+sans récupération possible**. `contact@postync.app` et `support@postync.app`
+perdraient un message sur deux, sans aucune trace.
+
+Le MX blackhole n'est d'ailleurs pas requis pour authentifier le domaine :
+l'écran Scaleway marque « REQUIRED » la seule section SPF/DKIM/DMARC.
+
+### Les trois enregistrements à poser chez IONOS
+
+**SPF — MODIFIER l'existant, ne jamais en ajouter un second.** Un domaine ne
+peut porter qu'UN enregistrement SPF ; deux valent une erreur permanente qui
+casse l'authentification des deux expéditeurs à la fois. Scaleway a d'ailleurs
+détecté l'existant et pré-fusionné la valeur :
+
+```
+Type  TXT
+Nom   @  (postync.app)
+Valeur  v=spf1 include:_spf-eu.ionos.com include:_spf.tem.scaleway.com ~all
+```
+
+**DKIM — nouvel enregistrement.** Le sélecteur est l'identifiant du projet
+Scaleway. La valeur est une clé PUBLIQUE : elle est faite pour être publiée.
+
+```
+Type  TXT
+Nom   630ee8b4-1b64-4e26-bd99-c8b629446e57._domainkey
+Valeur  (voir la console TEM > DNS Records — chaîne v=DKIM1; ... p=MIIBIjAN...)
+```
+
+**DMARC — déjà conforme.** L'existant `v=DMARC1; p=none;` correspond à ce que
+Scaleway demande. `p=none` est volontaire au démarrage : il observe sans
+rejeter. Le durcir en `quarantine` avant d'avoir constaté que SPF et DKIM
+passent ferait disparaître les messages légitimes.
+
 ## Ce qui reste à faire, et dans quel ordre
 
-1. **Choisir le domaine d'envoi.** ⛔ *Bloquant, décision en attente.*
-   POSTYNC est servi sur `postync.vercel.app` : la zone DNS de `vercel.app`
-   n'est pas la nôtre, donc **ni SPF ni DKIM ne peuvent y être posés**, et sans
-   eux les messages partent en indésirables ou sont rejetés. Il faut un domaine
-   possédé — un sous-domaine de `kodeho.com`, ou un domaine propre à POSTYNC.
-   Un domaine propre imposerait en outre de mettre à jour les `redirect_uri`
-   déclarés chez Meta et TikTok.
-2. Créer le domaine dans Scaleway TEM et poser les enregistrements DNS
-   (SPF et DKIM obligatoires, MX fortement recommandé), puis déclencher la
-   vérification.
+1. ~~Choisir le domaine d'envoi.~~ FAIT : `postync.app`, acheté le 2026-08-29.
+2. Domaine créé dans Scaleway TEM. **Enregistrements DNS à poser chez IONOS**
+   (SPF modifié, DKIM ajouté, DMARC déjà conforme, MX inchangés), puis
+   déclencher « Check DNS ».
 3. Configurer le SMTP du projet Supabase.
 4. Écrire l'envoi des invitations et remplacer le lien à copier.
 5. E2E réels sur les trois courriels.
