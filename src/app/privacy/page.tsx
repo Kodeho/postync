@@ -40,7 +40,14 @@ export default function PrivacyPage() {
     >
       <LegalSection id="responsable" title="1. Responsable du traitement">
         <p>
-          Le responsable du traitement est <LegalValue value={PUBLISHER.legalName} />, éditeur de{" "}
+          {/*
+            Le responsable du traitement est une PERSONNE identifiée, pas une
+            marque : le RGPD veut savoir qui répond. Le nom commercial suit
+            entre parenthèses, parce que c'est sous celui-là que la personne
+            concernée nous connaît.
+          */}
+          Le responsable du traitement est <LegalValue value={PUBLISHER.legalName} />
+          {PUBLISHER.tradeName ? ` (${PUBLISHER.tradeName})` : ""}, éditeur de{" "}
           {PUBLISHER.brand}, joignable à{" "}
           <a
             href={`mailto:${PUBLISHER.contactEmail}`}

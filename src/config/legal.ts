@@ -25,15 +25,33 @@ export const LEGAL_LAST_UPDATED = "2026-08-28";
 export const VAT_NOTICE: string | null = "TVA non applicable, article 293 B du CGI";
 
 export type Publisher = {
-  /** Dénomination commerciale du service. */
+  /** Dénomination commerciale du SERVICE (le produit). */
   brand: string;
-  /** Raison sociale de l'éditeur. */
+  /**
+   * Identité juridique de l'éditeur, telle qu'elle figure au registre.
+   *
+   * ATTENTION — ce champ n'est PAS le nom commercial. Pour un entrepreneur
+   * individuel, le registre ne connaît que la personne physique : c'est son
+   * nom d'état civil complet qui doit figurer ici, et c'est lui qui doit
+   * correspondre au justificatif officiel (Kbis, avis SIRENE) partout où un
+   * tiers — plateforme, banque, administration — demande « la dénomination
+   * légale ». Y écrire la marque était une inexactitude au regard de
+   * l'article 6 III de la LCEN, corrigée le 2026-08-30 sur pièce.
+   */
   legalName: string | null;
+  /**
+   * Nom commercial sous lequel l'éditeur exerce, s'il diffère du nom légal.
+   *
+   * Il reste la marque VISIBLE — on ne le remplace pas par le nom d'état civil
+   * dans l'interface. Les deux coexistent : le nom légal identifie, le nom
+   * commercial désigne.
+   */
+  tradeName: string | null;
   /** Forme juridique (SASU, SARL, entrepreneur individuel…). */
   legalForm: string | null;
   /** Capital social, si société. */
   shareCapital: string | null;
-  /** Adresse postale du siège. */
+  /** Adresse postale de l'établissement. */
   address: string | null;
   /** Numéro d'immatriculation (SIREN, RCS…). */
   registration: string | null;
@@ -41,18 +59,30 @@ export type Publisher = {
   vatNumber: string | null;
   /** Directeur de la publication (art. 6 III LCEN). */
   publicationDirector: string | null;
+  /**
+   * Site institutionnel de l'ENTREPRISE — distinct du site du produit.
+   *
+   * `postync.app` est l'adresse de POSTYNC ; celle-ci est celle de l'éditeur,
+   * et c'est la seule qui figure au registre. Les confondre lors d'une
+   * vérification d'entreprise crée un écart avec le justificatif.
+   */
+  website: string | null;
   /** Adresse de contact, également utilisée pour les demandes RGPD. */
   contactEmail: string;
 };
 
 export const PUBLISHER: Publisher = {
   brand: "POSTYNC",
-  legalName: "Kodeho",
-  legalForm: "Micro-entreprise",
-  // Une micro-entreprise n'a pas de capital social : le champ reste nul et la
-  // ligne n'est pas affichée, plutôt que d'annoncer « 0 € ».
+  // Identité d'état civil portée au Kbis — vérifiée sur pièce le 2026-08-30.
+  legalName: "PIRAINO Ludovic Fernand Louis",
+  tradeName: "Kodeho",
+  legalForm: "Entrepreneur individuel (micro-entreprise)",
+  // Un entrepreneur individuel n'a pas de capital social : le champ reste nul
+  // et la ligne n'est pas affichée, plutôt que d'annoncer « 0 € ».
   shareCapital: null,
-  address: "35 rue de Les Coves, 66000 Perpignan, France",
+  // Graphie du Kbis, reprise telle quelle : un justificatif se recopie, il ne
+  // se normalise pas.
+  address: "35 Rue De les Coves, 66000 Perpignan, France",
   registration: "535 194 799 R.C.S. Perpignan",
   // L'éditeur n'est PAS assujetti : franchise en base (art. 293 B du CGI).
   // Le champ reste donc nul, et `VAT_NOTICE` porte la mention qui doit
@@ -60,6 +90,7 @@ export const PUBLISHER: Publisher = {
   // en serait un autre.
   vatNumber: null,
   publicationDirector: "Ludovic Piraino",
+  website: "https://www.kodeho.com",
   contactEmail: "contact@kodeho.com",
 };
 
@@ -135,9 +166,9 @@ export const SOCIAL_RECIPIENTS = [
 /** Champs obligatoires encore vides. Vide = documents publiables. */
 export function missingLegalFields(publisher: Publisher = PUBLISHER): string[] {
   const obligatoires: Array<[keyof Publisher, string]> = [
-    ["legalName", "Raison sociale de l'éditeur"],
+    ["legalName", "Identité juridique de l'éditeur"],
     ["legalForm", "Forme juridique"],
-    ["address", "Adresse du siège"],
+    ["address", "Adresse de l'établissement"],
     ["registration", "Numéro d'immatriculation (SIREN / RCS)"],
     ["publicationDirector", "Directeur de la publication"],
   ];

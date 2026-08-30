@@ -26,10 +26,22 @@ export default function LegalNoticePage() {
           <dt className="text-muted">Service</dt>
           <dd>{PUBLISHER.brand}</dd>
 
-          <dt className="text-muted">Raison sociale</dt>
+          {/*
+            « Éditeur » et non « Raison sociale » : une raison sociale suppose
+            une société. Ici l'éditeur est une personne physique, et c'est son
+            identité d'état civil que la loi exige (art. 6 III LCEN).
+          */}
+          <dt className="text-muted">Éditeur</dt>
           <dd>
             <LegalValue value={PUBLISHER.legalName} />
           </dd>
+
+          {PUBLISHER.tradeName ? (
+            <>
+              <dt className="text-muted">Nom commercial</dt>
+              <dd>{PUBLISHER.tradeName}</dd>
+            </>
+          ) : null}
 
           <dt className="text-muted">Forme juridique</dt>
           <dd>
@@ -43,7 +55,8 @@ export default function LegalNoticePage() {
             </>
           ) : null}
 
-          <dt className="text-muted">Siège social</dt>
+          {/* « Établissement » : un entrepreneur individuel n'a pas de siège social. */}
+          <dt className="text-muted">Adresse de l&apos;établissement</dt>
           <dd>
             <LegalValue value={PUBLISHER.address} />
           </dd>
@@ -64,6 +77,21 @@ export default function LegalNoticePage() {
           <dd>
             <LegalValue value={PUBLISHER.publicationDirector} />
           </dd>
+
+          {PUBLISHER.website ? (
+            <>
+              <dt className="text-muted">Site de l&apos;entreprise</dt>
+              <dd>
+                <a
+                  href={PUBLISHER.website}
+                  className="text-primary underline-offset-4 hover:underline"
+                  rel="noreferrer"
+                >
+                  {PUBLISHER.website.replace(/^https?:\/\//, "")}
+                </a>
+              </dd>
+            </>
+          ) : null}
 
           <dt className="text-muted">Contact</dt>
           <dd>

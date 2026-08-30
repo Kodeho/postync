@@ -24,22 +24,24 @@ import { LEGAL_LINKS } from "@/components/layout/public-footer";
 const COMPLET: Publisher = {
   brand: "POSTYNC",
   legalName: "Exemple SAS",
+  tradeName: "Exemple",
   legalForm: "SAS",
   shareCapital: null,
   address: "1 rue de l'Exemple, 75001 Paris",
   registration: "123 456 789 RCS Paris",
   vatNumber: null,
   publicationDirector: "Prénom Nom",
+  website: "https://www.exemple.test",
   contactEmail: "contact@example.com",
 };
 
 describe("mentions obligatoires", () => {
   it("signale chaque champ obligatoire manquant, et se tait quand tout est là", () => {
     expect(missingLegalFields(COMPLET)).toEqual([]);
-    expect(missingLegalFields({ ...COMPLET, address: null })).toEqual(["Adresse du siège"]);
+    expect(missingLegalFields({ ...COMPLET, address: null })).toEqual(["Adresse de l'établissement"]);
     // Une chaîne d'espaces est un blanc, pas une adresse.
     expect(missingLegalFields({ ...COMPLET, legalName: "   " })).toEqual([
-      "Raison sociale de l'éditeur",
+      "Identité juridique de l'éditeur",
     ]);
     expect(missingLegalFields({ ...COMPLET, legalName: null, registration: null })).toHaveLength(2);
   });
@@ -69,6 +71,25 @@ describe("mentions obligatoires", () => {
 
   it("l'adresse de contact est toujours renseignée — c'est le point d'entrée RGPD", () => {
     expect(PUBLISHER.contactEmail).toMatch(/^[^@\s]+@[^@\s]+\.[^@\s]+$/);
+  });
+
+  it("l'identité juridique n'est JAMAIS la marque ni le nom commercial", () => {
+    // La régression corrigée le 2026-08-30 : `legalName` portait « Kodeho »,
+    // qui est le nom commercial. Les mentions légales annonçaient donc un
+    // éditeur qui n'existe pas au registre, et toute vérification d'identité
+    // — plateforme, banque, administration — butait sur l'écart avec le Kbis.
+    expect(PUBLISHER.legalName).not.toBe(PUBLISHER.brand);
+    expect(PUBLISHER.legalName).not.toBe(PUBLISHER.tradeName);
+  });
+
+  it("le site de l'entreprise n'est pas celui du produit", () => {
+    // Deux domaines, deux rôles : `postync.app` est le produit, le site de
+    // l'éditeur est celui qui figure au registre. Les confondre recrée
+    // exactement l'écart que le test précédent interdit.
+    if (PUBLISHER.website !== null) {
+      expect(PUBLISHER.website).toMatch(/^https:\/\//);
+      expect(PUBLISHER.website).not.toContain("postync.app");
+    }
   });
 });
 

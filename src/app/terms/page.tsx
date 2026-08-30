@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-import { LegalPage, LegalSection } from "@/components/layout/legal-page";
+import { LegalPage, LegalSection, LegalValue } from "@/components/layout/legal-page";
 import { PRODUCT_NAME } from "@/config/product";
 import { PUBLISHER, VAT_NOTICE } from "@/config/legal";
 import { PLANS, formatPlanPrice } from "@/config/plans";
@@ -32,11 +32,29 @@ export default function TermsPage() {
     <LegalPage
       title="Conditions générales d'utilisation et de vente"
       intro={
-        <p>
-          Ces conditions régissent l&apos;accès au service {PRODUCT_NAME} et son utilisation. En
-          créant un compte, vous les acceptez. Si vous n&apos;en acceptez pas une clause, vous ne
-          pouvez pas utiliser le service.
-        </p>
+        <>
+          <p>
+            Ces conditions régissent l&apos;accès au service {PRODUCT_NAME} et son utilisation. En
+            créant un compte, vous les acceptez. Si vous n&apos;en acceptez pas une clause, vous ne
+            pouvez pas utiliser le service.
+          </p>
+          {/*
+            Un contrat de vente doit dire QUI vend. Le texte parlait de
+            « l'éditeur » sans jamais le nommer : le cocontractant restait
+            anonyme dans le document même qui l'engage.
+          */}
+          <p className="mt-3">
+            Le service est édité et commercialisé par{" "}
+            <LegalValue value={PUBLISHER.legalName} />
+            {PUBLISHER.tradeName ? ` (${PUBLISHER.tradeName})` : ""}
+            {PUBLISHER.registration ? `, ${PUBLISHER.registration}` : ""}, ci-après
+            «&nbsp;l&apos;éditeur&nbsp;». Son identité complète figure dans les{" "}
+            <a href="/legal" className="text-primary underline-offset-4 hover:underline">
+              mentions légales
+            </a>
+            .
+          </p>
+        </>
       }
     >
       <LegalSection id="objet" title="1. Objet du service">
