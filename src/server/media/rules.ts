@@ -87,6 +87,13 @@ export type PlatformMediaRules = {
   requiredAspectRatio?: { value: number; tolerance: number; label: string };
   minWidth?: number;
   minHeight?: number;
+  /**
+   * Bornes HAUTES de résolution. TikTok est le premier réseau à en publier
+   * une (4096 px) ; les autres n'en documentent pas, et laissent donc ces
+   * champs vides plutôt que de se voir imposer une limite inventée.
+   */
+  maxWidth?: number;
+  maxHeight?: number;
   allowedMimeTypes: readonly string[];
 };
 
@@ -106,6 +113,34 @@ export const REEL_RULES: Partial<Record<SocialPlatform, PlatformMediaRules>> = {
     requiredAspectRatio: { value: 9 / 16, tolerance: 0.02, label: "9:16" },
     minWidth: 540,
     minHeight: 960,
+    allowedMimeTypes: ["video/mp4", "video/quicktime"],
+  },
+  /**
+   * TikTok — Content Posting API, « media transfer guide » vérifié le
+   * 2026-08-31 : MP4 (recommandé), WebM et MOV ; H.264/H.265/VP8/VP9 ;
+   * 23 à 60 images par seconde ; 360 à 4096 pixels sur chaque dimension ;
+   * 10 minutes au maximum par l'API.
+   *
+   * Deux absences volontaires :
+   *   · WebM n'est pas listé ici parce que la médiathèque ne l'accepte pas au
+   *     téléversement (`ALLOWED_MIME_TYPES`). L'ajouter ici décrirait une
+   *     capacité que le reste de la chaîne n'a pas ;
+   *   · aucun ratio imposé — TikTok n'en documente pas. En inventer un
+   *     refuserait des vidéos que la plateforme accepte.
+   *
+   * La cadence d'images n'est pas mesurée par notre sonde : elle n'est donc
+   * pas contrôlée ici, et un refus TikTok `frame_rate_check_failed` reste
+   * possible. Il est journalisé tel quel par le publisher.
+   *
+   * La durée est aussi plafonnée PAR CRÉATEUR (`creator_info`), valeur que le
+   * publisher vérifie à la publication : ce plafond-ci est le maximum absolu.
+   */
+  tiktok: {
+    maxDuration: 600,
+    minWidth: 360,
+    minHeight: 360,
+    maxWidth: 4096,
+    maxHeight: 4096,
     allowedMimeTypes: ["video/mp4", "video/quicktime"],
   },
 };
@@ -179,7 +214,13 @@ export function checkMediaForPlatform(
     }
   }
 
-  if (rules.requiredAspectRatio || rules.minWidth || rules.minHeight) {
+  if (
+    rules.requiredAspectRatio ||
+    rules.minWidth ||
+    rules.minHeight ||
+    rules.maxWidth ||
+    rules.maxHeight
+  ) {
     if (asset.width === null || asset.height === null || asset.height === 0) {
       violations.push({
         code: "not_measured",
@@ -203,6 +244,15 @@ export function checkMediaForPlatform(
         violations.push({
           code: "resolution",
           message: `${platformLabel} exige au moins ${rules.minWidth} × ${rules.minHeight} pixels ; ce média fait ${asset.width} × ${asset.height}.`,
+        });
+      }
+      if (
+        (rules.maxWidth !== undefined && asset.width > rules.maxWidth) ||
+        (rules.maxHeight !== undefined && asset.height > rules.maxHeight)
+      ) {
+        violations.push({
+          code: "resolution",
+          message: `${platformLabel} n'accepte pas plus de ${rules.maxWidth} × ${rules.maxHeight} pixels ; ce média fait ${asset.width} × ${asset.height}.`,
         });
       }
     }

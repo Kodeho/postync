@@ -31,10 +31,18 @@ export const metadata: Metadata = {
 /**
  * Réseaux, et ce qui est vraiment disponible pour chacun.
  *
- * `publication` suit l'existence d'un `publisher` dans
- * `src/server/social/providers/` — Instagram et Facebook en ont un,
- * TikTok et YouTube pas encore : leurs portées d'écriture dépendent d'une
- * validation par la plateforme.
+ * `publication` décrit ce qui est réellement OUVERT AU PUBLIC, ce qui est
+ * plus exigeant que la seule existence d'un `publisher` :
+ *
+ *   · Instagram et Facebook publient effectivement ;
+ *   · TikTok dispose bien d'un `tiktokPublisher` complet, mais la chaîne
+ *     reste fermée en amont — le média doit être servi par un domaine que
+ *     TikTok a vérifié, et l'application est encore en Sandbox. Annoncer
+ *     « TikTok » ici serait donc faux tant que ces deux verrous tiennent ;
+ *   · YouTube n'a pas encore de `publisher`.
+ *
+ * Cette liste passe à `true` quand la publication marche VRAIMENT, jamais
+ * quand le code est prêt. Un examinateur vérifie en trente secondes.
  */
 const RESEAUX = [
   { nom: "Instagram", publication: true },

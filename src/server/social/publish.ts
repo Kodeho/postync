@@ -8,6 +8,7 @@ import {
   type PublishMediaKind,
   type SocialProvider,
 } from "./providers/types";
+import { toDeliveryUrl } from "@/server/media/delivery";
 import { signMediaUrl } from "@/server/media/library";
 import { checkMediaForPlatform } from "@/server/media/rules";
 
@@ -105,6 +106,12 @@ type ResolvedMedia = {
   /** Ce qui sera ENREGISTRÉ : clé de l'objet, ou URL manuelle. */
   storedReference: string;
   assetId: string | null;
+  /**
+   * Durée mesurée, transmise au provider. TikTok en a besoin : son plafond
+   * dépend du créateur et ne peut donc pas être arbitré par les règles
+   * statiques de la médiathèque.
+   */
+  durationSeconds: number | null;
 };
 
 export type PublishDeps = {
@@ -470,16 +477,23 @@ export async function publishToSocialAccount(
       return { ok: false, code: "media_not_found", publicationId: null };
     }
     media = {
-      remoteUrl: signed.url,
+      // L'hôte de livraison est une décision d'infrastructure, isolée dans
+      // `media/delivery.ts` : sans domaine personnalisé configuré, l'URL
+      // signée ressort telle quelle. Le provider ne connaît jamais l'hôte de
+      // stockage — il ne juge que l'URL qu'il reçoit.
+      remoteUrl: toDeliveryUrl(signed.url),
       // Ce qui est enregistré est la CLÉ, jamais l'URL signée.
       storedReference: asset.storage_path,
       assetId: asset.id,
+      durationSeconds: asset.duration_seconds,
     };
   } else {
     media = {
       remoteUrl: request.mediaUrl as string,
       storedReference: request.mediaUrl as string,
       assetId: null,
+      // URL saisie à la main : rien n'a été mesuré, et deviner serait pire.
+      durationSeconds: null,
     };
   }
 
@@ -549,6 +563,7 @@ export async function publishToSocialAccount(
       caption: request.caption,
       coverUrl: request.coverUrl ?? null,
       shareToFeed: request.shareToFeed,
+      durationSeconds: media.durationSeconds,
     });
   } catch (error) {
     const code = shortCode(error);

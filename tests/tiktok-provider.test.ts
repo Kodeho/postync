@@ -40,8 +40,8 @@ describe("URL d'autorisation (Login Kit Web officiel)", () => {
     );
     expect(url.origin + url.pathname).toBe("https://www.tiktok.com/v2/auth/authorize/");
     expect(url.searchParams.get("client_key")).toBe("test-client-key");
-    // Moindre privilège : identité seulement, séparateur VIRGULE (spécificité TikTok).
-    expect(url.searchParams.get("scope")).toBe("user.info.basic");
+    // Séparateur VIRGULE — spécificité TikTok, un espace ou un « + » y échoue.
+    expect(url.searchParams.get("scope")).toBe("user.info.basic,video.publish");
     expect(url.searchParams.get("response_type")).toBe("code");
     expect(url.searchParams.get("redirect_uri")).toBe(REDIRECT);
     expect(url.searchParams.get("state")).toBe("state-opaque");
@@ -51,8 +51,17 @@ describe("URL d'autorisation (Login Kit Web officiel)", () => {
     expect(url.toString()).not.toContain("test-client-secret");
   });
 
-  it("aucun scope de publication en C8 (video.publish = Content Posting API, plus tard)", () => {
-    expect(TIKTOK_SCOPES).toEqual(["user.info.basic"]);
+  it("demande l'identité ET la publication, et rien d'autre", () => {
+    // `video.publish` accompagne l'identité depuis l'ouverture du chantier
+    // Content Posting API : le demander à la connexion évite un second
+    // passage par le consentement, et `publish.ts` réclame de toute façon une
+    // reconnexion aux comptes qui ne le portent pas.
+    //
+    // La borne HAUTE compte autant que la basse : `video.upload` ne publie
+    // pas, `user.info.profile` et `video.list` ne servent à rien ici. Une
+    // permission demandée sans usage est une permission de trop — et TikTok
+    // exige que chaque scope soumis soit démontré en vidéo à l'App Review.
+    expect(TIKTOK_SCOPES).toEqual(["user.info.basic", "video.publish"]);
   });
 });
 

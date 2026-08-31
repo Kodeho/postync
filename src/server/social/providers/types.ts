@@ -56,6 +56,25 @@ export type CreateContainerInput = {
   coverUrl?: string | null;
   /** Reel également visible dans le fil, quand la plateforme le permet. */
   shareToFeed?: boolean;
+  /**
+   * Durée mesurée du média, en secondes, quand elle est connue.
+   *
+   * Les règles statiques de `media/rules.ts` ne suffisent pas partout :
+   * TikTok expose une durée maximale PAR CRÉATEUR (`creator_info`), qu'aucune
+   * table figée ne peut anticiper. Le provider a donc besoin de la mesure
+   * pour arbitrer lui-même. Optionnel : les providers qui n'en ont pas
+   * l'usage l'ignorent, et rien ne change pour eux.
+   */
+  durationSeconds?: number | null;
+  /**
+   * Visibilité demandée, dans le vocabulaire de la PLATEFORME.
+   *
+   * Aucun réseau implémenté avant TikTok n'en propose le choix à la
+   * publication. Le champ reste donc facultatif, et chaque provider décide
+   * de son défaut — TikTok l'impose même à `SELF_ONLY` tant que son client
+   * n'est pas audité, quelle que soit la valeur reçue ici.
+   */
+  privacyLevel?: string | null;
 };
 
 /**

@@ -1,5 +1,6 @@
 import "server-only";
 
+import { TIKTOK_PUBLISH_SCOPE, tiktokPublisher } from "./tiktok-publisher";
 import type { SocialIdentity, SocialProvider, TokenSet } from "./types";
 
 /**
@@ -18,9 +19,9 @@ import type { SocialIdentity, SocialProvider, TokenSet } from "./types";
  *     365 jours ; LE REFRESH PEUT RENVOYER UN NOUVEAU refresh_token
  *     (rotation obligatoire, prise en charge par l'appelant) ;
  *   - révocation : POST /v2/oauth/revoke/ (access token + identifiants) ;
- *   - moindre privilège : `user.info.basic` uniquement (open_id,
- *     display_name, avatar). AUCUNE publication en C8 — `video.publish`
- *     viendra avec la Content Posting API et son audit.
+ *   - scopes : `user.info.basic` (open_id, display_name, avatar) et
+ *     `video.publish` (Content Posting API). La publication elle-même vit
+ *     dans `tiktok-publisher.ts` : ce module ne connaît que l'autorisation.
  *
  * Contrainte officielle : redirect URIs HTTPS absolus (pas de localhost) →
  * le E2E s'effectue sur le déploiement de production.
@@ -31,8 +32,23 @@ const TOKEN_ENDPOINT = "https://open.tiktokapis.com/v2/oauth/token/";
 const REVOKE_ENDPOINT = "https://open.tiktokapis.com/v2/oauth/revoke/";
 const USER_INFO_ENDPOINT = "https://open.tiktokapis.com/v2/user/info/";
 
-/** Périmètre C8.3 : identité seulement. */
-export const TIKTOK_SCOPES = ["user.info.basic"];
+/** Identité (C8.3). */
+export const TIKTOK_BASIC_SCOPE = "user.info.basic";
+
+/**
+ * Scopes demandés à l'autorisation.
+ *
+ * `video.publish` accompagne l'identité depuis l'étape publication : le
+ * demander à la connexion évite un second passage par le consentement. Un
+ * compte connecté AVANT cet ajout ne le porte pas — `publish.ts` compare les
+ * scopes RÉELLEMENT accordés et réclame une reconnexion, plutôt que de tenter
+ * un appel voué au refus `scope_not_authorized`.
+ *
+ * Contrepartie assumée : l'écran de consentement TikTok annonce désormais la
+ * publication de vidéos. C'est exact, c'est le produit, et le taire aurait
+ * été le vrai problème.
+ */
+export const TIKTOK_SCOPES = [TIKTOK_BASIC_SCOPE, TIKTOK_PUBLISH_SCOPE];
 
 function clientKey(): string {
   return process.env.TIKTOK_CLIENT_KEY ?? "";
@@ -200,4 +216,6 @@ export const tiktokProvider: SocialProvider = {
     // non bloquant — encore faut-il qu'il puisse le VOIR.
     await readOAuthPayload(response, "revoke");
   },
+
+  publisher: tiktokPublisher,
 };

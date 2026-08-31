@@ -134,6 +134,95 @@ describe("Reel Instagram — beaucoup plus permissif", () => {
   });
 });
 
+describe("Reel TikTok — bornes hautes ET basses", () => {
+  it("une verticale ordinaire passe", () => {
+    expect(checkMediaForPlatform(media(), "tiktok", "reel", "TikTok")).toEqual([]);
+  });
+
+  it("aucun ratio n'est imposé : TikTok n'en documente pas", () => {
+    // En inventer un refuserait des vidéos que la plateforme accepte —
+    // exactement l'inverse du service rendu. Le 16:9 passe donc, alors qu'il
+    // est refusé par Facebook.
+    expect(
+      checkMediaForPlatform(
+        media({ width: 1280, height: 720, duration_seconds: 10 }),
+        "tiktok",
+        "reel",
+        "TikTok",
+      ),
+    ).toEqual([]);
+  });
+
+  it("plus de 10 minutes : refusé", () => {
+    const violations = checkMediaForPlatform(
+      media({ duration_seconds: 601 }),
+      "tiktok",
+      "reel",
+      "TikTok",
+    );
+    expect(violations.map((v) => v.code)).toEqual(["too_long"]);
+    expect(violations[0].message).toContain("10 min");
+  });
+
+  it("exactement 10 minutes : accepté", () => {
+    expect(checkMediaForPlatform(media({ duration_seconds: 600 }), "tiktok", "reel", "TikTok")).toEqual(
+      [],
+    );
+  });
+
+  it("aucune durée minimale n'est inventée", () => {
+    // La documentation TikTok n'en publie pas. Facebook et Instagram exigent
+    // 3 secondes ; les recopier ici serait une contrainte sans source.
+    expect(
+      checkMediaForPlatform(media({ duration_seconds: 2 }), "tiktok", "reel", "TikTok"),
+    ).toEqual([]);
+  });
+
+  it("sous 360 pixels : refusé", () => {
+    expect(
+      checkMediaForPlatform(media({ width: 320, height: 568 }), "tiktok", "reel", "TikTok").map(
+        (v) => v.code,
+      ),
+    ).toEqual(["resolution"]);
+  });
+
+  it("au-delà de 4096 pixels : refusé — la borne HAUTE existe aussi", () => {
+    // Elle est propre à TikTok : c'est le seul réseau à en documenter une.
+    const violations = checkMediaForPlatform(
+      media({ width: 4320, height: 7680 }),
+      "tiktok",
+      "reel",
+      "TikTok",
+    );
+    expect(violations.map((v) => v.code)).toEqual(["resolution"]);
+    expect(violations[0].message).toContain("4096");
+  });
+
+  it("la borne haute ne s'applique qu'à TikTok", () => {
+    // Instagram n'en documente aucune : lui en imposer une refuserait des
+    // médias qu'il accepte.
+    expect(
+      checkMediaForPlatform(
+        media({ width: 4320, height: 7680, duration_seconds: 10 }),
+        "instagram",
+        "reel",
+        "Instagram",
+      ),
+    ).toEqual([]);
+  });
+
+  it("TikTok ne publie pas d'image isolée par cette API", () => {
+    expect(
+      checkMediaForPlatform(
+        media({ mime_type: "image/jpeg", kind: "image" }),
+        "tiktok",
+        "image",
+        "TikTok",
+      ).map((v) => v.code),
+    ).toEqual(["unsupported_kind"]);
+  });
+});
+
 describe("images", () => {
   it("Instagram n'accepte que le JPEG", () => {
     expect(
