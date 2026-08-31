@@ -43,11 +43,19 @@ export const metadata: Metadata = {
  *
  * Cette liste passe à `true` quand la publication marche VRAIMENT, jamais
  * quand le code est prêt. Un examinateur vérifie en trente secondes.
+ *
+ * `attente` précise CE QU'ON ATTEND, quand ce n'est pas la même chose d'un
+ * réseau à l'autre. « À venir » couvre le cas de YouTube, dont l'intégration
+ * reste à écrire. Il décrivait mal TikTok, dont la chaîne technique est
+ * terminée et éprouvée de bout en bout : ce qui manque là n'est pas du code,
+ * c'est l'approbation de la plateforme. Le dire exactement évite deux
+ * malentendus opposés — laisser croire que rien n'existe, et laisser croire
+ * que le réseau est ouvert aux clients.
  */
 const RESEAUX = [
   { nom: "Instagram", publication: true },
   { nom: "Facebook", publication: true },
-  { nom: "TikTok", publication: false },
+  { nom: "TikTok", publication: false, attente: "en cours de validation par TikTok" },
   { nom: "YouTube", publication: false },
 ] as const;
 
@@ -185,7 +193,9 @@ export default function Home() {
                         : "rounded-full bg-surface-muted px-2.5 py-1 text-xs font-medium text-muted"
                     }
                   >
-                    {reseau.publication ? "Connexion et publication" : "Connexion — publication à venir"}
+                    {reseau.publication
+                      ? "Connexion et publication"
+                      : `Connexion — publication ${"attente" in reseau ? reseau.attente : "à venir"}`}
                   </span>
                 </li>
               ))}
