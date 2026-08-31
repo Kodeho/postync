@@ -83,6 +83,11 @@ export type PublishRequest = {
    */
   mediaUrl?: string;
   caption: string | null;
+  /**
+   * Titre, distinct de la légende. Seul YouTube en exige un ; les autres
+   * providers l'ignorent (voir `CreateContainerInput.title`).
+   */
+  title?: string | null;
   coverUrl?: string | null;
   shareToFeed?: boolean;
   /**
@@ -112,6 +117,11 @@ type ResolvedMedia = {
    * statiques de la médiathèque.
    */
   durationSeconds: number | null;
+  /**
+   * Taille en octets. YouTube l'exige AVANT le premier octet pour ouvrir sa
+   * session résumable (`X-Upload-Content-Length`).
+   */
+  byteSize: number | null;
 };
 
 export type PublishDeps = {
@@ -242,20 +252,62 @@ async function markFailed(
  */
 async function waitForContainer(
   provider: SocialProvider,
-  input: { accessToken: string; containerId: string },
+  input: { accessToken: string; containerId: string; mediaUrl?: string | null },
   deps: PublishDeps,
 ): Promise<ContainerStatus> {
   const sleep = deps.sleep ?? defaultSleep;
   const now = deps.now ?? Date.now;
   const publisher = provider.publisher!;
   const deadline = now() + (deps.pollBudgetMs ?? POLL_BUDGET_MS);
+  const probe = { accessToken: input.accessToken, containerId: input.containerId };
 
-  let status = await publisher.containerStatus(input);
+  let status = await publisher.containerStatus(probe);
   let step = 0;
   while (status === "processing" && now() < deadline) {
-    await sleep(POLL_STEPS_MS[Math.min(step, POLL_STEPS_MS.length - 1)]);
-    step += 1;
-    status = await publisher.containerStatus(input);
+    // DEUX FAÇONS D'ÊTRE « EN COURS », et elles n'appellent pas la même chose.
+    //
+    // Chez Meta et TikTok, la plateforme travaille de son côté : il n'y a rien
+    // à faire qu'attendre. Chez YouTube, « en cours » signifie qu'il MANQUE des
+    // octets, et personne ne les enverra à notre place — dormir laisserait la
+    // publication éternellement à mi-chemin.
+    //
+    // Un provider qui déclare `resumeTransfer` demande donc à pousser la suite
+    // lui-même, dans le temps qu'il reste. Les trois autres n'en ont pas, et
+    // leur comportement est strictement inchangé.
+    if (publisher.resumeTransfer && !input.mediaUrl) {
+      // Le provider sait pousser des octets, mais on n'a pas de quoi les lire.
+      // Attendre ne servirait à rien — personne ne poussera à notre place, et
+      // sonder en boucle brûlerait tout le budget pour rien. On rend la main :
+      // la ligne reste `pending`, avec sa session intacte.
+      console.error(`[social:publish] ${provider.platform} transfer: media_unavailable`);
+      return "processing";
+    }
+    if (publisher.resumeTransfer && input.mediaUrl) {
+      try {
+        await publisher.resumeTransfer({
+          accessToken: input.accessToken,
+          containerId: input.containerId,
+          mediaUrl: input.mediaUrl,
+          // ÉCHÉANCE EN TEMPS RÉEL, et c'est délibéré. Le budget est compté
+          // avec `deps.now`, que les tests remplacent parfois par une horloge
+          // accélérée ; le provider, lui, ne peut comparer qu'à `Date.now()`.
+          // Passer l'échéance brute ferait diverger les deux et laisserait la
+          // boucle de transfert tourner des milliers de fois. On convertit
+          // donc le TEMPS RESTANT en une échéance réelle : la sémantique du
+          // budget est préservée, sans dépendre de l'horloge du moteur.
+          deadline: Date.now() + Math.max(0, deadline - now()),
+        });
+      } catch (error) {
+        // Le transfert s'arrête là, mais la SESSION reste valide : la ligne
+        // demeure reprenable et rien n'est réenvoyé depuis le début.
+        console.error(`[social:publish] ${provider.platform} transfer: ${shortCode(error)}`);
+        return "processing";
+      }
+    } else {
+      await sleep(POLL_STEPS_MS[Math.min(step, POLL_STEPS_MS.length - 1)]);
+      step += 1;
+    }
+    status = await publisher.containerStatus(probe);
   }
   return status;
 }
@@ -439,7 +491,7 @@ export async function publishToSocialAccount(
   if (request.mediaAssetId) {
     const { data: asset } = await db
       .from("media_assets")
-      .select("id, storage_path, mime_type, kind, width, height, duration_seconds, status")
+      .select("id, storage_path, mime_type, kind, width, height, duration_seconds, byte_size, status")
       .eq("id", request.mediaAssetId)
       .eq("workspace_id", request.workspaceId)
       .maybeSingle<{
@@ -450,6 +502,7 @@ export async function publishToSocialAccount(
         width: number | null;
         height: number | null;
         duration_seconds: number | null;
+        byte_size: number | null;
         status: string;
       }>();
     if (!asset) {
@@ -486,6 +539,7 @@ export async function publishToSocialAccount(
       storedReference: asset.storage_path,
       assetId: asset.id,
       durationSeconds: asset.duration_seconds,
+      byteSize: asset.byte_size,
     };
   } else {
     media = {
@@ -494,6 +548,7 @@ export async function publishToSocialAccount(
       assetId: null,
       // URL saisie à la main : rien n'a été mesuré, et deviner serait pire.
       durationSeconds: null,
+      byteSize: null,
     };
   }
 
@@ -564,6 +619,8 @@ export async function publishToSocialAccount(
       coverUrl: request.coverUrl ?? null,
       shareToFeed: request.shareToFeed,
       durationSeconds: media.durationSeconds,
+      byteSize: media.byteSize,
+      title: request.title ?? null,
     });
   } catch (error) {
     const code = shortCode(error);
@@ -577,7 +634,11 @@ export async function publishToSocialAccount(
 
   let status: ContainerStatus;
   try {
-    status = await waitForContainer(provider, { accessToken, containerId }, deps);
+    status = await waitForContainer(
+      provider,
+      { accessToken, containerId, mediaUrl: media.remoteUrl },
+      deps,
+    );
   } catch (error) {
     const code = shortCode(error);
     console.error(`[social:publish] ${account.platform} status: ${code}`);
@@ -608,7 +669,10 @@ export async function resumePublication(
 
   const { data: publication } = await db
     .from("social_publications")
-    .select("id, workspace_id, platform, provider_account_id, container_id, status, social_account_id, caption")
+    .select(
+      "id, workspace_id, platform, provider_account_id, container_id, status, " +
+        "social_account_id, caption, media_asset_id, media_url",
+    )
     .eq("id", input.publicationId)
     .eq("workspace_id", input.workspaceId)
     .maybeSingle<{
@@ -620,6 +684,8 @@ export async function resumePublication(
       status: string;
       social_account_id: string | null;
       caption: string | null;
+      media_asset_id: string | null;
+      media_url: string | null;
     }>();
   if (!publication) {
     return { ok: false, code: "account_not_found", publicationId: null };
@@ -658,11 +724,35 @@ export async function resumePublication(
   }
   const accessToken = token.accessToken;
 
+  // URL SIGNÉE FRAÎCHE, et seulement quand elle sert.
+  //
+  // Un provider qui tire le média par URL n'en a plus besoin ici : il a déjà
+  // le fichier, ou le récupérera tout seul. Mais un transfert fractionné, lui,
+  // doit relire les octets restants — et l'URL signée à la création a pu
+  // expirer entre-temps. On la reforge donc, sans jamais la conserver.
+  let mediaUrl: string | null = null;
+  if (provider.publisher?.resumeTransfer) {
+    if (publication.media_asset_id) {
+      const signed = await signMediaUrl(db, {
+        workspaceId: input.workspaceId,
+        assetId: publication.media_asset_id,
+      });
+      if (signed.ok) {
+        mediaUrl = toDeliveryUrl(signed.url);
+      }
+    } else if (isPublishableMediaUrl(publication.media_url ?? "")) {
+      // Chemin historique : la ligne conserve l'URL elle-même, et non une clé
+      // de stockage. Elle reste utilisable telle quelle — l'ignorer rendrait
+      // toute reprise impossible sur ce chemin.
+      mediaUrl = publication.media_url;
+    }
+  }
+
   let status: ContainerStatus;
   try {
     status = await waitForContainer(
       provider,
-      { accessToken, containerId: publication.container_id },
+      { accessToken, containerId: publication.container_id, mediaUrl },
       deps,
     );
   } catch (error) {

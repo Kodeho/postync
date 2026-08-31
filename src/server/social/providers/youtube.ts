@@ -1,5 +1,6 @@
 import "server-only";
 
+import { YOUTUBE_UPLOAD_SCOPE, youtubePublisher } from "./youtube-publisher";
 import { SocialIdentityUnavailableError, type SocialIdentity, type SocialProvider, type TokenSet } from "./types";
 
 /**
@@ -14,8 +15,9 @@ import { SocialIdentityUnavailableError, type SocialIdentity, type SocialProvide
  *   - `access_type=offline` + `prompt=consent` : refresh token garanti ;
  *   - `include_granted_scopes=true` : autorisation incrémentale — la future
  *     étape publication ajoutera `youtube.upload` sans re-demander le reste ;
- *   - moindre privilège : `youtube.readonly` suffit pour identifier la
- *     chaîne (`channels.list?mine=true`). AUCUNE publication en C8.
+ *   - scopes : `youtube.readonly` pour identifier la chaîne, `youtube.upload`
+ *     pour publier. La publication elle-même vit dans `youtube-publisher.ts` :
+ *     ce module ne connaît que l'autorisation.
  *
  * Attention (officiel) : consent screen en statut « Testing » ⇒ refresh
  * tokens expirés au bout de 7 jours ; la reconnexion C8.1 couvre ce cas.
@@ -26,8 +28,26 @@ const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 const REVOKE_ENDPOINT = "https://oauth2.googleapis.com/revoke";
 const CHANNELS_ENDPOINT = "https://www.googleapis.com/youtube/v3/channels";
 
-/** Périmètre C8.2 : lecture seule. `youtube.upload` viendra en incrémental. */
-export const YOUTUBE_SCOPES = ["https://www.googleapis.com/auth/youtube.readonly"];
+/** Identification de la chaîne (`channels.list?mine=true`). */
+export const YOUTUBE_READONLY_SCOPE = "https://www.googleapis.com/auth/youtube.readonly";
+
+/**
+ * Scopes demandés à l'autorisation.
+ *
+ * `youtube.upload` est le MINIMUM qui autorise `videos.insert` : les autres
+ * scopes acceptés par cet endpoint (`youtube`, `youtube.force-ssl`,
+ * `youtubepartner`) ouvrent bien davantage que ce dont POSTYNC a besoin.
+ *
+ * `youtube.readonly` est conservé parce qu'il sert réellement : il porte
+ * `channels.list?mine=true`, seul moyen d'identifier la chaîne connectée et de
+ * détecter un compte Google qui n'en possède aucune. `youtube.upload` seul ne
+ * donne pas accès à cette lecture.
+ *
+ * Un compte connecté AVANT l'ajout de `youtube.upload` ne le porte pas :
+ * `publish.ts` compare les scopes RÉELLEMENT accordés et réclame une
+ * reconnexion, plutôt que de tenter un envoi voué au refus.
+ */
+export const YOUTUBE_SCOPES = [YOUTUBE_READONLY_SCOPE, YOUTUBE_UPLOAD_SCOPE];
 
 function clientId(): string {
   return process.env.GOOGLE_CLIENT_ID ?? "";
@@ -164,4 +184,6 @@ export const youtubeProvider: SocialProvider = {
     if (!token) return;
     await postForm(REVOKE_ENDPOINT, { token });
   },
+
+  publisher: youtubePublisher,
 };

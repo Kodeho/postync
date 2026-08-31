@@ -69,6 +69,12 @@ export type BroadcastRequest = {
   mediaKind: PublishMediaKind;
   mediaAssetId: string;
   caption: string | null;
+  /**
+   * Titre YouTube. Ignoré par les autres réseaux : seul `videos.insert` en
+   * exige un, et POSTYNC ne va pas imposer un titre là où la plateforme n'en
+   * a pas la notion.
+   */
+  title?: string | null;
   /** Comptes visés. Chacun est revérifié contre le workspace en aval. */
   socialAccountIds: string[];
   /** Échéance ISO, ou null pour publier tout de suite. */
@@ -167,6 +173,7 @@ export async function broadcastPublication(
       mediaKind: request.mediaKind,
       mediaAssetId: request.mediaAssetId,
       caption: request.caption,
+      title: request.title ?? null,
       shareToFeed: request.shareToFeed,
     });
 

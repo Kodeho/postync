@@ -75,6 +75,20 @@ export type CreateContainerInput = {
    * n'est pas audité, quelle que soit la valeur reçue ici.
    */
   privacyLevel?: string | null;
+  /**
+   * Titre du média, distinct de la légende.
+   *
+   * Seul YouTube en exige un : `snippet.title` est obligatoire pour
+   * `videos.insert`, et c'est l'élément principal de la page vidéo. Les
+   * autres réseaux n'ont pas de notion équivalente — chez eux, le texte est
+   * la légende — et ignorent donc ce champ.
+   *
+   * Taille en octets du média, quand elle est connue. YouTube l'exige AVANT
+   * le premier octet (`X-Upload-Content-Length`) : sans elle, la session
+   * résumable ne peut pas être ouverte.
+   */
+  title?: string | null;
+  byteSize?: number | null;
 };
 
 /**
@@ -119,6 +133,30 @@ export interface SocialPublisher {
      */
     caption?: string | null;
   }): Promise<{ providerMediaId: string }>;
+  /**
+   * Poursuite d'un transfert d'octets déjà entamé.
+   *
+   * Présent UNIQUEMENT chez les plateformes qui ne savent pas aller chercher
+   * le média elles-mêmes. Instagram, Facebook et TikTok reçoivent une URL et
+   * tirent le fichier ; YouTube, lui, n'accepte aucune URL distante — c'est
+   * POSTYNC qui pousse les octets, et un fichier de 300 Mo ne tient pas dans
+   * une seule invocation.
+   *
+   * L'appelant fournit une échéance : la méthode envoie ce qu'elle peut
+   * avant, puis rend la main. Ce qui reste sera repris au réveil suivant, à
+   * l'octet près — jamais depuis le début. C'est ce qui rend le transfert
+   * fractionné sûr : la session distante est la seule source de vérité sur ce
+   * qui a déjà été reçu.
+   */
+  resumeTransfer?(input: {
+    accessToken: string;
+    /** Identifiant de session rendu par `createContainer`. */
+    containerId: string;
+    /** URL signée FRAÎCHE du média — celle de la création a pu expirer. */
+    mediaUrl: string;
+    /** Instant (ms) au-delà duquel il faut rendre la main. */
+    deadline: number;
+  }): Promise<void>;
   /** Lien public du média publié — best effort, jamais bloquant. */
   fetchPermalink?(input: { accessToken: string; providerMediaId: string }): Promise<string | null>;
   /** Quota de publication imposé par la PLATEFORME (distinct du plan POSTYNC). */

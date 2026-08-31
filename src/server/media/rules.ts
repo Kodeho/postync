@@ -143,6 +143,21 @@ export const REEL_RULES: Partial<Record<SocialPlatform, PlatformMediaRules>> = {
     maxHeight: 4096,
     allowedMimeTypes: ["video/mp4", "video/quicktime"],
   },
+  /**
+   * YouTube — `videos.insert`, documentation vérifiée le 2026-08-31.
+   *
+   * YouTube est de loin le plus permissif : il accepte `video/*` jusqu'à
+   * 256 Go, sans durée ni ratio imposés. Les seules bornes réelles sont donc
+   * les NÔTRES — la médiathèque n'accepte que MP4 et MOV au téléversement, et
+   * plafonne à 300 Mo (`MAX_BYTE_SIZE`).
+   *
+   * On n'écrit ici AUCUNE contrainte inventée : pas de durée maximale, pas de
+   * ratio, pas de résolution minimale. En ajouter refuserait des vidéos que
+   * YouTube accepte, ce qui serait un service rendu à personne.
+   */
+  youtube: {
+    allowedMimeTypes: ["video/mp4", "video/quicktime"],
+  },
 };
 
 export const IMAGE_RULES: Partial<Record<SocialPlatform, PlatformMediaRules>> = {
