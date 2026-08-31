@@ -162,6 +162,41 @@ function depsSansTemps(): PublishDeps {
   return deps(100, 1);
 }
 
+/**
+ * Client identique au vrai, SAUF l'écriture de `container_id`, qui échoue.
+ *
+ * Tout le reste passe par la vraie base : c'est ce qui rend le test crédible.
+ * On ne simule que la panne précise qu'on veut éprouver.
+ */
+function dbSansPersistanceDeConteneur(reel: SupabaseClient): SupabaseClient {
+  const lier = (cible: object, prop: string | symbol) => {
+    const valeur = Reflect.get(cible, prop);
+    return typeof valeur === "function" ? valeur.bind(cible) : valeur;
+  };
+
+  return new Proxy(reel, {
+    get(cible, prop) {
+      if (prop !== "from") return lier(cible, prop);
+      return (table: string) => {
+        const builder = cible.from(table);
+        if (table !== "social_publications") return builder;
+        return new Proxy(builder, {
+          get(b, p) {
+            if (p !== "update") return lier(b, p);
+            return (valeurs: Record<string, unknown>) => {
+              if ("container_id" in valeurs) {
+                // Écriture refusée par la base.
+                return { eq: async () => ({ error: { code: "XX000" } }) };
+              }
+              return (lier(b, "update") as (v: unknown) => unknown)(valeurs);
+            };
+          },
+        });
+      };
+    },
+  }) as SupabaseClient;
+}
+
 function requete(overrides: Record<string, unknown> = {}) {
   return {
     workspaceId,
@@ -378,6 +413,41 @@ describe.skipIf(!CONFIGURED)("YouTube — publication (orchestration réelle)", 
 
     expect(outcome).toMatchObject({ ok: true, status: "published" });
   }, 20_000);
+
+it("écriture du conteneur refusée : on s'arrête, et la ligne est mise EN ÉCHEC", async () => {
+    // LE DANGER. La session existe déjà chez Google. Si `container_id` n'est
+    // pas écrit, la ligne reste `pending` avec un conteneur nul — or le
+    // planificateur lit cet état comme « rien n'est parti » et REPUBLIE depuis
+    // le début. Sur TikTok cela produirait une seconde vidéo ; ici, une
+    // seconde session.
+    //
+    // Marquer la ligne en échec la retire de `claim_stale_publications`, qui
+    // ne réclame que des lignes `pending`.
+    const appels = mockGoogle();
+
+    const outcome = await publishToSocialAccount(
+      { ...deps(), db: dbSansPersistanceDeConteneur(admin) },
+      requete(),
+    );
+
+    expect(outcome).toMatchObject({ ok: false, code: "provider_error" });
+    if (outcome.ok) return;
+
+    const row = await ligne(outcome.publicationId!);
+    expect(row.status).toBe("failed");
+    expect(row.status_detail).toBe("container_lost");
+
+    // UNE seule session ouverte : aucune boucle, aucune seconde session.
+    expect(appels.ouvertures).toBe(1);
+    // AUCUN octet poussé : `resumeTransfer` n'a jamais été appelé. C'est
+    // l'assertion qui compte — un transfert entamé après une persistance
+    // perdue serait des octets orphelins.
+    expect(appels.ecritures).toBe(0);
+    // Une seule lecture du média : le `HEAD` de mesure fait par
+    // `createContainer` AVANT l'écriture. Un transfert en aurait produit
+    // d'autres, par tranches.
+    expect(appels.lecturesMedia).toBe(1);
+  }, 30_000);
 
   // -------------------------------------------------------------------------
   // Contrôles du moteur appliqués à YouTube

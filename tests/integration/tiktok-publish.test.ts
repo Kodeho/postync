@@ -140,6 +140,38 @@ function creatorInfo(overrides: Record<string, unknown> = {}) {
   });
 }
 
+/**
+ * Client identique au vrai, SAUF l'écriture de `container_id`, qui échoue.
+ * Tout le reste passe par la vraie base.
+ */
+function dbSansPersistanceDeConteneur(reel: SupabaseClient): SupabaseClient {
+  const lier = (cible: object, prop: string | symbol) => {
+    const valeur = Reflect.get(cible, prop);
+    return typeof valeur === "function" ? valeur.bind(cible) : valeur;
+  };
+
+  return new Proxy(reel, {
+    get(cible, prop) {
+      if (prop !== "from") return lier(cible, prop);
+      return (table: string) => {
+        const builder = cible.from(table);
+        if (table !== "social_publications") return builder;
+        return new Proxy(builder, {
+          get(b, p) {
+            if (p !== "update") return lier(b, p);
+            return (valeurs: Record<string, unknown>) => {
+              if ("container_id" in valeurs) {
+                return { eq: async () => ({ error: { code: "XX000" } }) };
+              }
+              return (lier(b, "update") as (v: unknown) => unknown)(valeurs);
+            };
+          },
+        });
+      };
+    },
+  }) as SupabaseClient;
+}
+
 /** `now` qui avance vite : la boucle d'attente se termine sans attendre. */
 function fastClock(): () => number {
   let value = Date.now();
@@ -462,6 +494,35 @@ describe.skipIf(!CONFIGURED)("TikTok — publication (orchestration réelle)", (
       .eq("id", accountId)
       .single();
     expect((account as { status: string }).status).toBe("active");
+  }, 30_000);
+
+it("écriture du conteneur refusée : arrêt net, aucune seconde vidéo", async () => {
+    // TikTok ne déclare PAS `resumeTransfer` : ce test prouve que le garde-fou
+    // vaut pour tous les providers, pas seulement pour YouTube.
+    //
+    // Ici l'enjeu est maximal : `video/init` a DÉJÀ engagé la publication. Si
+    // la ligne restait `pending` avec un conteneur nul, le planificateur la
+    // relancerait depuis le début — et TikTok posterait une seconde vidéo.
+    const tiktok = mockTikTok({ statuses: [json({ data: { status: "PUBLISH_COMPLETE" } })] });
+
+    const outcome = await publishToSocialAccount(
+      { ...deps(), db: dbSansPersistanceDeConteneur(admin) },
+      requete(),
+    );
+
+    expect(outcome).toMatchObject({ ok: false, code: "provider_error" });
+    if (outcome.ok) return;
+
+    const row = await ligne(outcome.publicationId!);
+    // `failed` retire la ligne du champ de `claim_stale_publications`, qui ne
+    // réclame que des lignes `pending`. C'est ce qui empêche la relance.
+    expect(row.status).toBe("failed");
+    expect(row.status_detail).toBe("container_lost");
+
+    // UN seul `video/init`, et rien après : pas de suivi de statut, pas de
+    // boucle, pas de seconde initialisation.
+    expect(tiktok.appelsVers("/video/init/")).toBe(1);
+    expect(tiktok.appelsVers("/status/fetch/")).toBe(0);
   }, 30_000);
 
   // -------------------------------------------------------------------------

@@ -630,7 +630,30 @@ export async function publishToSocialAccount(
     return { ok: false, code: "provider_error", publicationId: publicationId };
   }
 
-  await db.from("social_publications").update({ container_id: containerId }).eq("id", publicationId);
+  // LA SEULE TRACE DE CE QUI EST DÉJÀ PARTI.
+  //
+  // Le conteneur existe maintenant chez la plateforme : selon le réseau, une
+  // vidéo TikTok est déjà postée, ou une session YouTube attend ses octets.
+  // Si cette écriture échoue, la ligne reste `pending` AVEC UN CONTENEUR NUL —
+  // et le planificateur interprète cet état comme « rien n'est parti », donc
+  // republie depuis le début. Ce serait un doublon sur le compte du client,
+  // irrattrapable.
+  //
+  // On arrête donc net, et surtout on marque la ligne EN ÉCHEC : c'est ce qui
+  // la retire du champ de `claim_stale_publications`, qui ne réclame que des
+  // lignes `pending`. Rien n'est repris, rien n'est renvoyé.
+  const { error: persistError } = await db
+    .from("social_publications")
+    .update({ container_id: containerId })
+    .eq("id", publicationId);
+  if (persistError) {
+    console.error(`[social:publish] ${account.platform} container persist: ${persistError.code}`);
+    // Si CE marquage échoue à son tour, la base est hors service et il n'y a
+    // plus rien à tenter ici. Le journal ci-dessus reste la trace du conteneur
+    // orphelin.
+    await markFailed(db, publicationId, "container_lost");
+    return { ok: false, code: "provider_error", publicationId };
+  }
 
   let status: ContainerStatus;
   try {
