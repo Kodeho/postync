@@ -7,8 +7,10 @@ import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { recordLegalAcceptance } from "@/server/legal/acceptance";
 
-export type LegalAcceptState = { error: string | null };
-export const IDLE_LEGAL_ACCEPT: LegalAcceptState = { error: null };
+// L'état vit dans `accept-state.ts`, et NON ici : un module `"use server"` ne
+// peut exporter que des fonctions asynchrones. Voir l'en-tête de ce fichier —
+// l'exporter d'ici a mis la production en échec au premier envoi.
+import type { LegalAcceptState } from "./accept-state";
 
 /**
  * Enregistre l'acceptation des versions courantes pour l'utilisateur CONNECTÉ.

@@ -6,7 +6,8 @@ import { useActionState } from "react";
 import { FormAlert } from "@/components/ui/form-alert";
 import { SubmitButton } from "@/components/ui/submit-button";
 
-import { acceptLegalAction, IDLE_LEGAL_ACCEPT } from "./accept-action";
+import { acceptLegalAction } from "./accept-action";
+import { IDLE_LEGAL_ACCEPT } from "./accept-state";
 
 /**
  * Formulaire de réacceptation.
