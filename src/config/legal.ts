@@ -12,8 +12,33 @@
  * publier sans s'en apercevoir.
  */
 
-/** Date de dernière mise à jour affichée sur les documents. */
-export const LEGAL_LAST_UPDATED = "2026-08-28";
+/**
+ * VERSIONS DES DOCUMENTS — source unique.
+ *
+ * Ce sont les valeurs enregistrées dans `legal_acceptances` : ce que
+ * l'utilisateur a accepté, et à quelle date de document. Les deux sont
+ * séparées parce qu'elles évoluent séparément — corriger une clause des CGU
+ * ne doit pas invalider l'acceptation de la politique, et inversement.
+ *
+ * CHANGER L'UNE DE CES VALEURS REDEMANDE L'ACCEPTATION À TOUT LE MONDE. C'est
+ * délibéré : une acceptation ne vaut que pour la version acceptée. La garde
+ * compare le couple enregistré au couple courant ; il n'y a pas d'autre
+ * mécanisme à activer, et rien à migrer.
+ *
+ * Format `AAAA-MM-JJ`, la date d'entrée en vigueur du document — lisible dans
+ * une base comme dans un échange avec un utilisateur, contrairement à un
+ * numéro de révision.
+ */
+export const TERMS_VERSION = "2026-09-01";
+export const PRIVACY_VERSION = "2026-09-01";
+
+/**
+ * Date de dernière mise à jour affichée sur les documents. Dérivée des deux
+ * versions ci-dessus : elle ne peut pas dériver de ce qui est réellement
+ * accepté.
+ */
+export const LEGAL_LAST_UPDATED =
+  TERMS_VERSION >= PRIVACY_VERSION ? TERMS_VERSION : PRIVACY_VERSION;
 
 /**
  * Mention obligatoire accompagnant les prix quand l'éditeur relève de la

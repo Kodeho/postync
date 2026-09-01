@@ -3,6 +3,7 @@ import { connection } from "next/server";
 
 import { listMemberships, requireUser } from "@/features/workspaces/queries";
 import { resolveAppRedirect } from "@/features/workspaces/resolve";
+import { requireLegalAcceptance } from "@/server/legal/guard";
 
 /**
  * `/app` — résolveur du workspace actif.
@@ -20,6 +21,12 @@ export default async function AppIndexPage() {
   await connection();
 
   const { supabase, user } = await requireUser();
+
+  // Point d'entrée de l'application : la garde s'applique ici aussi, sans
+  // quoi `/app` renverrait vers `/onboarding` ou un workspace sans jamais
+  // avoir demandé l'acceptation.
+  await requireLegalAcceptance(supabase, user.id);
+
   const memberships = await listMemberships(supabase, user.id);
 
   redirect(resolveAppRedirect(memberships));
