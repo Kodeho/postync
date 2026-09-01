@@ -7,6 +7,7 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 
 import { createClient } from "@/lib/supabase/server";
 import { sendPasswordChangedEmail } from "@/server/email/notifications";
+import { recordLegalAcceptance } from "@/server/legal/acceptance";
 import { createServiceClient } from "@/server/supabase/service-client";
 import { isSupabaseConfigured, requireSupabaseEnv } from "@/lib/supabase/env";
 import { safeReturnPath } from "@/lib/return-path";
@@ -95,6 +96,25 @@ export async function signUpAction(
     // utilisateur factice sans identité pour une adresse déjà inscrite.
     if (data.user && (data.user.identities?.length ?? 0) === 0) {
       return signupFailure("Cette adresse e-mail est déjà utilisée.", preserved);
+    }
+
+    // TRACE DE L'ACCEPTATION, écrite APRÈS la création et seulement si elle a
+    // réussi. L'ordre compte : enregistrer avant produirait une preuve
+    // d'acceptation pour un compte qui n'existe pas, et la contrainte de clé
+    // étrangère la refuserait de toute façon.
+    //
+    // Elle est écrite ici plutôt qu'à la première connexion parce que c'est
+    // ICI que l'utilisateur a coché la case et lu les liens. Attendre
+    // reviendrait à dater le consentement d'un moment où il n'a rien accepté.
+    if (data.user) {
+      const trace = await recordLegalAcceptance(data.user.id);
+      if (!trace.ok) {
+        // Le compte EXISTE désormais : échouer ici laisserait l'utilisateur
+        // sans compte utilisable et sans message utile. La garde de
+        // réacceptation le rattrapera à sa première visite — c'est
+        // précisément ce pour quoi elle existe.
+        console.error(`[auth:signup] acceptation non enregistrée: ${trace.code}`);
+      }
     }
 
     hasSession = data.session !== null;

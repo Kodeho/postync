@@ -2,6 +2,7 @@ import { cache } from "react";
 import { notFound } from "next/navigation";
 
 import type { WorkspaceMembership } from "@/types/workspace";
+import { requireLegalAcceptance } from "@/server/legal/guard";
 
 import { listMemberships, requireUser } from "./queries";
 import { findMembershipBySlug } from "./resolve";
@@ -26,6 +27,13 @@ export type WorkspaceContext = {
 export const getWorkspaceContext = cache(
   async (slug: string): Promise<WorkspaceContext> => {
     const { supabase, user } = await requireUser();
+
+    // Documents légaux : AVANT toute lecture métier. Une page qui affiche des
+    // données sous un contrat non accepté serait exactement ce que la garde
+    // est censée empêcher. Ce point couvre tout `/app/[workspaceSlug]/*`,
+    // layout compris.
+    await requireLegalAcceptance(supabase, user.id);
+
     const memberships = await listMemberships(supabase, user.id);
     const active = findMembershipBySlug(memberships, slug);
 

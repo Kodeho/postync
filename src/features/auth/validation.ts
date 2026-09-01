@@ -82,6 +82,24 @@ export function validateSignup(form: FormData): Validated<SignupInput> {
     return { ok: false, error: "Les deux mots de passe ne sont pas identiques." };
   }
 
+  // ACCEPTATION VÉRIFIÉE CÔTÉ SERVEUR, pas seulement dans le navigateur.
+  //
+  // La case porte `required`, ce qui suffit à un usage normal — et ne suffit
+  // à rien d'autre : retirer l'attribut dans la console, ou poster le
+  // formulaire directement, contourne la vérification en trois secondes. Un
+  // consentement qu'on peut sauter n'est pas un consentement, et la trace
+  // qu'on en garderait serait fausse. Le contrôle est donc ici, avant toute
+  // création de compte.
+  //
+  // Une case cochée vaut `"on"` ; décochée, le champ est simplement ABSENT.
+  if (String(form.get("legalAccepted") ?? "") !== "on") {
+    return {
+      ok: false,
+      error:
+        "Vous devez accepter les conditions d'utilisation et la politique de confidentialité pour créer un compte.",
+    };
+  }
+
   return { ok: true, value: { displayName, email, password } };
 }
 

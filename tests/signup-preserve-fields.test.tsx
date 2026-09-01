@@ -26,6 +26,11 @@ function buildForm(overrides: Record<string, string> = {}): FormData {
   form.set("email", "Ludovic.Test@Example.com");
   form.set("password", SECRET);
   form.set("confirmPassword", SECRET_CONFIRM);
+  // Ces tests portent sur la PRÉSERVATION des champs après une erreur de
+  // Supabase, pas sur le consentement : sans cette case, `validateSignup`
+  // refuserait avant même d'atteindre ce qu'ils éprouvent. Le refus sans
+  // acceptation est couvert par `tests/legal-acceptance.test.ts`.
+  form.set("legalAccepted", "on");
   for (const [key, value] of Object.entries(overrides)) {
     form.set(key, value);
   }
