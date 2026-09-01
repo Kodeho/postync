@@ -101,7 +101,43 @@ l'état qu'aucune politique ne permet d'expliquer.
 **Elle ne dépend pas de la révocation distante.** Celle-ci est tentée d'abord et
 tracée si elle échoue, mais la purge suit dans tous les cas. C'est précisément
 quand l'autorisation survit chez la plateforme qu'il faut être certain de n'avoir
-rien gardé.
+rien gardé. La politique de confidentialité le dit dans ces termes : nous
+« demandons immédiatement à Google de révoquer » — nous ne prétendons pas que
+Google le fasse à coup sûr, ce que nous ne pouvons pas garantir.
+
+## Droits de `disconnect_social_account`
+
+Relevés dans la base, pas déduits du fichier :
+
+| Propriété | Valeur |
+|---|---|
+| Sécurité | `SECURITY DEFINER` |
+| Propriétaire | `postgres` |
+| `search_path` | `""` — vide ; le corps qualifie tout en `public.<table>` |
+| Privilèges | `postgres=X/postgres`, `service_role=X/postgres` |
+| `public`, `anon`, `authenticated` | **aucun droit** |
+
+Deux barrières, et elles sont indépendantes :
+
+1. **Applicative** — `disconnectAction` vérifie l'appartenance du compte au
+   workspace autorisé avant d'agir.
+2. **Base** — la fonction refuse un compte qui n'appartient pas au workspace
+   passé, et refuse des arguments nuls. Elle LÈVE au lieu de ne rien faire :
+   une déconnexion qui ne déconnecte rien est une anomalie, pas un cas nominal.
+
+Un client `authenticated`, fût-il propriétaire du workspace, ne peut pas appeler
+la fonction : la seule voie est l'action serveur.
+
+## Les écrans après une purge
+
+`listRecentPublications`, `listPublicationsForMonth` et `listOverviewPublications`
+lisent tous `social_publications`. Tous les usages de `permalink` dans les vues
+sont déjà gardés par un ternaire, donc un lien absent ne rend rien de cassé —
+la ligne s'affiche simplement sans lien.
+
+Une publication publiée puis purgée reste `published` : on n'efface pas le fait
+qu'elle est partie, seulement ce qui vient de la plateforme. L'utilisateur voit
+la date, le réseau, sa légende et l'état — sans lien cliquable.
 
 Les deux pages sont publiques, accessibles sans connexion, et liées depuis le
 pied de page de chaque écran. Elles ne sont pas ajoutées au pied de page

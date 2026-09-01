@@ -213,10 +213,14 @@ export default function PrivacyPage() {
         <ul className="list-disc pl-5">
           <li>
             <span className="font-medium">Depuis {PRODUCT_NAME}</span> — « Déconnecter » sur la page
-            Comptes sociaux. Le jeton est révoqué{" "}
-            <span className="font-medium">immédiatement</span> auprès de Google, puis la ligne du
-            compte et les jetons du coffre sont détruits dans la foulée. Il ne subsiste aucun
-            secret.
+            Comptes sociaux. Nous demandons{" "}
+            <span className="font-medium">immédiatement à Google de révoquer</span> le jeton. Cet
+            appel dépend de Google et peut échouer ; c&apos;est pourquoi la suppression chez nous
+            n&apos;en dépend pas : la ligne du compte, les jetons du coffre et les données de
+            plateforme de votre historique sont supprimés{" "}
+            <span className="font-medium">dans tous les cas</span>, en une seule opération. Il ne
+            subsiste aucun secret. Si la révocation chez Google n&apos;aboutissait pas, vous pouvez
+            toujours retirer l&apos;accès depuis votre compte Google, ci-dessous.
           </li>
           <li>
             <span className="font-medium">Depuis Google</span> — vous pouvez retirer l&apos;accès de{" "}
