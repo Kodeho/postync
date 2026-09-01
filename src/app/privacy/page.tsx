@@ -160,6 +160,85 @@ export default function PrivacyPage() {
           que vous demandez explicitement. Nous n&apos;utilisons ces données ni à des fins
           publicitaires, ni pour entraîner un modèle, et ne les revendons pas.
         </p>
+
+        {/*
+          Divulgation exigee par les YouTube API Services Terms of Service et par
+          les Developer Policies : nommer les YouTube API Services, renvoyer a la
+          politique de confidentialite de Google ET au panneau de securite Google
+          permettant de revoquer l'acces. Les trois liens sont OBLIGATOIRES.
+
+          Tout ce qui suit decrit le comportement REEL du code, pas une intention :
+          les donnees listees sont celles que `youtube.ts` lit et que
+          `social_accounts` stocke, et les delais sont ceux qu'executent
+          `disconnectSocialAccount` et le trigger `social_accounts_purge_secrets`.
+        */}
+        <h3 className="mt-6 text-base font-semibold text-foreground">YouTube</h3>
+        <p>
+          {PRODUCT_NAME} utilise les{" "}
+          <span className="font-medium">YouTube API Services</span> pour publier vos vidéos sur
+          votre chaîne. À ce titre, les données que Google traite le sont conformément à la{" "}
+          <a
+            href="https://policies.google.com/privacy"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary underline-offset-4 hover:underline"
+          >
+            politique de confidentialité de Google
+          </a>
+          .
+        </p>
+        <p className="font-medium">Ce que nous consultons et conservons</p>
+        <ul className="list-disc pl-5">
+          <li>
+            <span className="font-medium">L&apos;identité de votre chaîne</span> — identifiant, nom
+            affiché et image de profil, lus une seule fois juste après votre autorisation, pour que
+            vous sachiez sur quelle chaîne vous publiez.
+          </li>
+          <li>
+            <span className="font-medium">Les jetons d&apos;autorisation</span> — conservés
+            chiffrés dans un coffre, jamais en clair, et jamais accessibles depuis le navigateur.
+          </li>
+          <li>
+            <span className="font-medium">Ce que vous publiez</span> — le titre, la description et
+            le fichier que vous nous confiez, puis l&apos;identifiant et le lien de la vidéo créée,
+            conservés dans votre historique de publications.
+          </li>
+        </ul>
+        <p>
+          Nous ne lisons <span className="font-medium">rien d&apos;autre</span> : ni vos autres
+          vidéos, ni vos statistiques, ni vos playlists, ni vos commentaires, ni vos abonnés. La
+          seule écriture que nous effectuons est l&apos;envoi de la vidéo que vous avez demandée.
+        </p>
+        <p className="font-medium">Retirer notre accès</p>
+        <ul className="list-disc pl-5">
+          <li>
+            <span className="font-medium">Depuis {PRODUCT_NAME}</span> — « Déconnecter » sur la page
+            Comptes sociaux. Le jeton est révoqué{" "}
+            <span className="font-medium">immédiatement</span> auprès de Google, puis la ligne du
+            compte et les jetons du coffre sont détruits dans la foulée. Il ne subsiste aucun
+            secret.
+          </li>
+          <li>
+            <span className="font-medium">Depuis Google</span> — vous pouvez retirer l&apos;accès de{" "}
+            {PRODUCT_NAME} à tout moment depuis les{" "}
+            <a
+              href="https://security.google.com/settings/security/permissions"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary underline-offset-4 hover:underline"
+            >
+              paramètres de sécurité de votre compte Google
+            </a>
+            .
+          </li>
+        </ul>
+        <p>
+          Après une déconnexion, votre{" "}
+          <span className="font-medium">historique de publications subsiste</span> — il conserve
+          l&apos;identifiant de la chaîne et le lien des vidéos déjà publiées, parce qu&apos;il vous
+          sert de trace de ce qui est parti. Il est supprimé avec votre compte. La vidéo, elle,
+          reste sur votre chaîne : elle vous appartient, et la retirer se fait depuis YouTube.
+        </p>
       </LegalSection>
 
       <LegalSection id="destinataires" title="6. Destinataires et transferts">
