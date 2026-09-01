@@ -233,11 +233,21 @@ export default function PrivacyPage() {
           </li>
         </ul>
         <p>
-          Après une déconnexion, votre{" "}
-          <span className="font-medium">historique de publications subsiste</span> — il conserve
-          l&apos;identifiant de la chaîne et le lien des vidéos déjà publiées, parce qu&apos;il vous
-          sert de trace de ce qui est parti. Il est supprimé avec votre compte. La vidéo, elle,
-          reste sur votre chaîne : elle vous appartient, et la retirer se fait depuis YouTube.
+          <span className="font-medium">La déconnexion purge aussi votre historique</span> de toute
+          donnée venant de YouTube : identifiant de chaîne, identifiant de vidéo, lien de la vidéo
+          et identifiant de session d&apos;envoi sont effacés des publications passées, dans la même
+          opération que la suppression du compte — jamais l&apos;une sans l&apos;autre.
+        </p>
+        <p>
+          Ne subsiste que ce que vous nous avez donné ou ce qui nous est propre : la date, le
+          statut, votre légende et le média que vous aviez importé. Votre historique garde donc son
+          sens — « une vidéo est partie sur YouTube tel jour » — sans porter la moindre donnée de la
+          plateforme. Une publication encore en cours au moment de la déconnexion est arrêtée : elle
+          ne peut pas se poursuivre sans autorisation.
+        </p>
+        <p>
+          La vidéo déjà publiée, elle, <span className="font-medium">reste sur votre chaîne</span> :
+          elle vous appartient, et seule YouTube peut la retirer — depuis votre compte YouTube.
         </p>
       </LegalSection>
 

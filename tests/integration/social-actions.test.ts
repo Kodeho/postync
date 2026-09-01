@@ -172,4 +172,174 @@ describe.skipIf(!CONFIGURED)("C8.1 — actions connect/disconnect (autorisations
     expect(await vaultRead(admin, accessId)).toBeNull();
     expect(await vaultRead(admin, refreshId)).toBeNull();
   });
+
+  /**
+   * Purge des données de plateforme à la déconnexion.
+   *
+   * La première rédaction de la politique de confidentialité annonçait que
+   * l'historique CONSERVAIT l'identifiant de chaîne et le lien des vidéos.
+   * C'était exact au regard du code d'alors — et incompatible avec l'exigence
+   * de suppression des données autorisées. Ces tests verrouillent le
+   * comportement corrigé, des deux côtés : ce qui doit partir, et ce qui doit
+   * rester.
+   */
+  async function compteAvecPublications(suffixe: string) {
+    const accessId = await vaultStore(admin, `purge-access-${suffixe}`, `c81p/${suffixe}/access`);
+    const refreshId = await vaultStore(admin, `purge-refresh-${suffixe}`, `c81p/${suffixe}/refresh`);
+    const { data: compte } = await admin
+      .from("social_accounts")
+      .insert({
+        workspace_id: workspaceId,
+        platform: "youtube",
+        provider_account_id: "UC86PZJH-purge",
+        display_name: "Chaîne à purger",
+        avatar_url: "https://yt3.googleusercontent.com/avatar.jpg",
+        access_token_id: accessId,
+        refresh_token_id: refreshId,
+        scopes: ["https://www.googleapis.com/auth/youtube.upload"],
+        connected_by: ids.owner,
+      })
+      .select("id")
+      .single();
+
+    const commun = {
+      workspace_id: workspaceId,
+      social_account_id: compte!.id,
+      platform: "youtube",
+      provider_account_id: "UC86PZJH-purge",
+      media_kind: "reel",
+      media_url: "https://cdn.example.com/local.mp4",
+      caption: "Légende écrite par l'utilisateur",
+      requested_by: ids.owner,
+    };
+    const { data: lignes } = await admin
+      .from("social_publications")
+      .insert([
+        {
+          ...commun,
+          status: "published",
+          provider_media_id: "dQw4w9WgXcQ",
+          permalink: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+          container_id: "https://www.googleapis.com/upload/youtube/v3/videos?upload_id=SECRET",
+          published_at: new Date().toISOString(),
+        },
+        {
+          ...commun,
+          status: "pending",
+          container_id: "https://www.googleapis.com/upload/youtube/v3/videos?upload_id=ENCOURS",
+        },
+      ])
+      .select("id, status");
+    return { compteId: compte!.id, accessId, refreshId, lignes: lignes ?? [] };
+  }
+
+  it("PURGE : plus aucun identifiant, lien ni session YouTube après déconnexion", async () => {
+    const { compteId, accessId, refreshId } = await compteAvecPublications("ok");
+
+    currentActor = clients.owner;
+    const ok = await disconnectAction(IDLE_SOCIAL_ACTION, form({ workspaceSlug: slug, accountId: compteId }));
+    expect(ok.error).toBeNull();
+
+    // 1. Le compte et ses secrets ont disparu.
+    const { count } = await admin
+      .from("social_accounts").select("*", { count: "exact", head: true }).eq("id", compteId);
+    expect(count).toBe(0);
+    expect(await vaultRead(admin, accessId)).toBeNull();
+    expect(await vaultRead(admin, refreshId)).toBeNull();
+
+    // 2. Les publications ne portent PLUS rien qui vienne de la plateforme.
+    const { data: pubs } = await admin
+      .from("social_publications")
+      .select("status, status_detail, provider_account_id, provider_media_id, permalink, container_id, purged_at, caption, media_url, platform, created_at")
+      .eq("workspace_id", workspaceId)
+      .eq("platform", "youtube");
+    expect(pubs!.length).toBe(2);
+    for (const p of pubs!) {
+      expect(p.provider_account_id).toBeNull();
+      expect(p.provider_media_id).toBeNull();
+      expect(p.permalink).toBeNull();
+      expect(p.container_id).toBeNull(); // l'URI de session part aussi
+      expect(p.purged_at).not.toBeNull();
+
+      // 3. Ce qui vient de l'utilisateur ou de nous est CONSERVÉ.
+      expect(p.caption).toBe("Légende écrite par l'utilisateur");
+      expect(p.media_url).toBe("https://cdn.example.com/local.mp4");
+      expect(p.platform).toBe("youtube");
+      expect(p.created_at).toBeTruthy();
+    }
+
+    // 4. Celle qui était en cours est ARRÊTÉE : plus jamais reprise.
+    const enCours = pubs!.filter((p) => p.status === "pending");
+    expect(enCours).toHaveLength(0);
+    expect(pubs!.some((p) => p.status_detail === "account_disconnected")).toBe(true);
+    // Et celle déjà publiée reste publiée : on n'efface pas le fait, seulement
+    // les données de la plateforme.
+    expect(pubs!.some((p) => p.status === "published")).toBe(true);
+
+    await admin.from("social_publications").delete().eq("workspace_id", workspaceId);
+  });
+
+  it("PURGE : elle a lieu même quand AUCUNE révocation distante n'aboutit", async () => {
+    // C'est le cas qui compte le plus. Quand l'autorisation survit chez la
+    // plateforme, il faut être d'autant plus certain de n'avoir rien gardé.
+    //
+    // Ce harnais le prouve à l'état pur : les providers ne s'enregistrent que
+    // si leurs identifiants sont configurés, et ils ne le sont pas ici. Aucune
+    // révocation n'est donc seulement tentée — et la purge locale doit malgré
+    // tout être intégrale. Que `revoke` appelle bien le point d'accès de Google
+    // est prouvé séparément, dans `youtube-provider.test.ts`.
+    const { compteId, accessId } = await compteAvecPublications("revoke-ko");
+
+    currentActor = clients.owner;
+    const ok = await disconnectAction(IDLE_SOCIAL_ACTION, form({ workspaceSlug: slug, accountId: compteId }));
+
+    // La déconnexion locale aboutit quand même.
+    expect(ok.error).toBeNull();
+    const { count } = await admin
+      .from("social_accounts").select("*", { count: "exact", head: true }).eq("id", compteId);
+    expect(count).toBe(0);
+    expect(await vaultRead(admin, accessId)).toBeNull();
+
+    const { data: pubs } = await admin
+      .from("social_publications")
+      .select("provider_media_id, permalink, container_id, provider_account_id, purged_at")
+      .eq("workspace_id", workspaceId);
+    for (const p of pubs!) {
+      expect(p.provider_media_id).toBeNull();
+      expect(p.permalink).toBeNull();
+      expect(p.container_id).toBeNull();
+      expect(p.provider_account_id).toBeNull();
+      expect(p.purged_at).not.toBeNull();
+    }
+
+    await admin.from("social_publications").delete().eq("workspace_id", workspaceId);
+  });
+
+  it("PURGE : le planificateur ne reprend plus rien après une déconnexion", async () => {
+    const { compteId } = await compteAvecPublications("scheduler");
+
+    currentActor = clients.owner;
+    await disconnectAction(IDLE_SOCIAL_ACTION, form({ workspaceSlug: slug, accountId: compteId }));
+
+    // Aucune ligne réclamable ne subsiste : ni `pending`, ni `scheduled`.
+    const { data: reclamables } = await admin
+      .from("social_publications")
+      .select("id, status")
+      .eq("workspace_id", workspaceId)
+      .in("status", ["pending", "scheduled"]);
+    expect(reclamables).toHaveLength(0);
+
+    // Et rien ne pourrait de toute façon être repris : le conteneur a disparu
+    // avec le jeton. Aucune session ne peut donc être poursuivie, ni doublée.
+    const { data: pubs } = await admin
+      .from("social_publications")
+      .select("container_id, social_account_id")
+      .eq("workspace_id", workspaceId);
+    for (const p of pubs!) {
+      expect(p.container_id).toBeNull();
+      expect(p.social_account_id).toBeNull();
+    }
+
+    await admin.from("social_publications").delete().eq("workspace_id", workspaceId);
+  });
 });

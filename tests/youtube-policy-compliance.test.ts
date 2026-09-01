@@ -83,8 +83,17 @@ describe("politique de confidentialité", () => {
     expect(bloc).not.toMatch(/trente jours|30 jours/);
   });
 
-  it("dit ce qui SURVIT à la déconnexion, plutôt que de laisser croire à un effacement total", () => {
-    expect(CONFIDENTIALITE).toMatch(/historique de publications subsiste/);
+  it("annonce la purge de l'historique, et ne prétend PAS conserver des identifiants YouTube", () => {
+    // Première rédaction de cette page : « l'historique conserve l'identifiant
+    // de la chaîne et le lien des vidéos ». C'était exact au regard du code
+    // d'alors — et incompatible avec l'exigence de suppression des données
+    // autorisées. Le code a changé, la page aussi ; ce test empêche le retour
+    // en arrière de l'un comme de l'autre.
+    expect(CONFIDENTIALITE).toMatch(/purge aussi votre historique/);
+    expect(CONFIDENTIALITE).not.toMatch(/conserve\s+l.apos;identifiant de la chaîne/);
+    // Ce qui reste est nommé, et ne vient pas de la plateforme.
+    expect(CONFIDENTIALITE).toMatch(/la date, le\s*\n?\s*statut, votre légende/);
+    // La vidéo publiée, elle, appartient au client : on ne prétend pas l'effacer.
     expect(CONFIDENTIALITE).toMatch(/reste sur votre chaîne/);
   });
 });

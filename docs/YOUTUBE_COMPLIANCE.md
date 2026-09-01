@@ -62,6 +62,46 @@ et les [Developer Policies](https://developers.google.com/youtube/terms/develope
 | Lien vers les paramètres de sécurité Google (révocation) | Confidentialité, §5 | ✅ |
 | Données consultées et conservées | Confidentialité, §5 | ✅ |
 | Procédure de retrait et délais réels | Confidentialité, §5 et §7 | ✅ |
+| Suppression des données autorisées à la révocation | `disconnect_social_account` | ✅ |
+
+## Ce que la déconnexion efface, et ce qu'elle garde
+
+La première rédaction de cette page annonçait que l'historique **conservait**
+l'identifiant de chaîne et le lien des vidéos. C'était exact au regard du code
+d'alors — et incompatible avec l'exigence de suppression des données
+autorisées. Les deux ont été corrigés.
+
+| Champ | Nature | À la déconnexion |
+|---|---|---|
+| `social_accounts` (ligne entière) | plateforme — identifiant de chaîne, nom, avatar, scopes | **supprimée** |
+| jetons (coffre) | plateforme | **détruits** par trigger |
+| `provider_account_id` | plateforme — identifiant de chaîne | **null** |
+| `provider_media_id` | plateforme — identifiant de vidéo | **null** |
+| `permalink` | dérivé — construit sur l'identifiant de vidéo | **null** |
+| `container_id` | plateforme — URI de session résumable | **null** |
+| `purged_at` | interne | horodaté |
+| `caption` | fournie par l'utilisateur | conservée |
+| `media_url` | locale — notre stockage | conservée |
+| `platform`, `media_kind`, `status`, dates | interne | conservées |
+
+`platform` reste : savoir qu'une publication est partie « vers YouTube » est
+notre propre fait d'exploitation, pas une donnée reçue de YouTube.
+
+**La purge s'applique à toutes les plateformes**, pas au seul YouTube. Meta et
+TikTok posent des exigences équivalentes, et une asymétrie serait indéfendable :
+on n'explique pas pourquoi un identifiant de vidéo TikTok survivrait là où celui
+de YouTube disparaît.
+
+**Elle est atomique.** Les trois opérations — arrêter ce qui est en cours,
+purger, supprimer le compte — tiennent dans `disconnect_social_account`, donc
+dans une seule transaction. Enchaînées côté application, une panne entre deux
+laisserait un compte supprimé avec des identifiants de vidéos encore en base :
+l'état qu'aucune politique ne permet d'expliquer.
+
+**Elle ne dépend pas de la révocation distante.** Celle-ci est tentée d'abord et
+tracée si elle échoue, mais la purge suit dans tous les cas. C'est précisément
+quand l'autorisation survit chez la plateforme qu'il faut être certain de n'avoir
+rien gardé.
 
 Les deux pages sont publiques, accessibles sans connexion, et liées depuis le
 pied de page de chaque écran. Elles ne sont pas ajoutées au pied de page

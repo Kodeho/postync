@@ -184,12 +184,29 @@ export async function disconnectAction(
     }
   }
 
-  // La suppression déclenche la purge Vault (trigger C8.1).
-  const { error } = await db.from("social_accounts").delete().eq("id", account.id);
+  // DÉCONNEXION ATOMIQUE, et elle s'exécute MÊME SI la révocation ci-dessus a
+  // échoué : c'est précisément quand l'autorisation distante survit qu'il faut
+  // être certain de n'avoir rien gardé chez nous.
+  //
+  // Les trois opérations — annuler ce qui est en cours, purger les données de
+  // plateforme, supprimer le compte — tiennent dans une seule fonction, donc
+  // une seule transaction. Enchaînées ici, une panne entre deux laisserait un
+  // état à moitié purgé : compte supprimé mais identifiants de vidéos encore
+  // en base. Aucune politique ne permet d'expliquer cet état.
+  const { data: purge, error } = await db
+    .rpc("disconnect_social_account", {
+      p_account_id: account.id,
+      p_workspace_id: auth.membership.workspace.id,
+    })
+    .maybeSingle<{ cancelled: number; purged: number }>();
   if (error) {
     console.error(`[social:disconnect] ${error.code}`);
     return { error: "La déconnexion a échoué. Veuillez réessayer." };
   }
+  // Trace non sensible : ni identifiant de chaîne, ni jeton, ni lien.
+  console.info(
+    `[social:disconnect] ${account.platform} annulées=${purge?.cancelled ?? 0} purgées=${purge?.purged ?? 0}`,
+  );
 
   revalidatePath(`/app/${auth.membership.workspace.slug}/accounts`);
 
