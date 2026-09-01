@@ -154,9 +154,19 @@ export interface SocialPublisher {
     containerId: string;
     /** URL signée FRAÎCHE du média — celle de la création a pu expirer. */
     mediaUrl: string;
-    /** Instant (ms) au-delà duquel il faut rendre la main. */
+    /**
+     * Instant (ms) au-delà duquel il faut rendre la main. L'appelant DOIT
+     * accorder au moins le budget minimal annoncé par le provider : en deçà,
+     * celui-ci lève plutôt que de rendre la main sans rien faire.
+     */
     deadline: number;
-  }): Promise<void>;
+    /**
+     * Octets effectivement acceptés par la plateforme pendant cet appel. Zéro
+     * est licite — session déjà complète, ou échéance atteinte — mais doit
+     * rester OBSERVABLE : une reprise qui n'avance jamais est une panne, pas
+     * un régime permanent.
+     */
+  }): Promise<{ pushedBytes: number }>;
   /** Lien public du média publié — best effort, jamais bloquant. */
   fetchPermalink?(input: { accessToken: string; providerMediaId: string }): Promise<string | null>;
   /** Quota de publication imposé par la PLATEFORME (distinct du plan POSTYNC). */

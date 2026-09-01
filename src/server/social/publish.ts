@@ -284,7 +284,7 @@ async function waitForContainer(
     }
     if (publisher.resumeTransfer && input.mediaUrl) {
       try {
-        await publisher.resumeTransfer({
+        const transfert = await publisher.resumeTransfer({
           accessToken: input.accessToken,
           containerId: input.containerId,
           mediaUrl: input.mediaUrl,
@@ -297,6 +297,15 @@ async function waitForContainer(
           // budget est préservée, sans dépendre de l'horloge du moteur.
           deadline: Date.now() + Math.max(0, deadline - now()),
         });
+        // UNE REPRISE QUI N'AVANCE PAS DOIT SE VOIR. Zéro octet est licite une
+        // fois — session déjà complète, échéance atteinte — mais c'est aussi la
+        // signature exacte de la panne de budget qui a bloqué la production
+        // sans laisser la moindre trace. On l'écrit, et on rend la main plutôt
+        // que de resonder en boucle serrée pour le reste du budget.
+        if (transfert.pushedBytes === 0) {
+          console.error(`[social:publish] ${provider.platform} transfer: no_progress`);
+          return await publisher.containerStatus(probe);
+        }
       } catch (error) {
         // Le transfert s'arrête là, mais la SESSION reste valide : la ligne
         // demeure reprenable et rien n'est réenvoyé depuis le début.

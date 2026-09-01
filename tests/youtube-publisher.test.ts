@@ -26,6 +26,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   CHUNK_SIZE,
+  YOUTUBE_MIN_TRANSFER_BUDGET_MS,
   YOUTUBE_TITLE_MAX_LENGTH,
   YOUTUBE_UPLOAD_SCOPE,
   sessionOffset,
@@ -62,6 +63,44 @@ const tranche = (taille: number) =>
 /** `HEAD` sur le média : seule la taille compte. */
 const tailleMedia = (taille: number) =>
   new Response(null, { status: 200, headers: { "content-length": String(taille) } });
+
+/**
+ * Simulateur ENDURANT d'une session résumable : il répond indéfiniment et tient
+ * la position comme le ferait Google. Indispensable pour éprouver une boucle
+ * qui s'arrête sur le temps et non sur un nombre d'appels — une séquence figée
+ * s'épuiserait avant l'échéance et masquerait ce qu'on veut mesurer.
+ */
+function mockYouTubeEndurant(total: number) {
+  let recu = 0;
+  const mock = vi.spyOn(globalThis, "fetch");
+  mock.mockImplementation(async (input, init) => {
+    const methode = init?.method ?? "GET";
+    if (methode === "HEAD") return tailleMedia(total);
+
+    const plage = (init?.headers as Record<string, string> | undefined)?.["content-range"];
+    if (plage?.startsWith("bytes */")) {
+      // Interrogation de position.
+      return recu === 0
+        ? new Response(null, { status: 308 })
+        : new Response(null, { status: 308, headers: { range: `bytes=0-${recu - 1}` } });
+    }
+    if (plage) {
+      // Envoi d'un morceau : on avance la position.
+      const bornes = /bytes (\d+)-(\d+)\//.exec(plage);
+      if (bornes) recu = Number(bornes[2]) + 1;
+      return recu >= total
+        ? json({ id: VIDEO_ID }, 200)
+        : new Response(null, { status: 308 });
+    }
+    // Lecture d'une tranche du média.
+    const demande = (init?.headers as Record<string, string> | undefined)?.range;
+    const bornes = /bytes=(\d+)-(\d+)/.exec(demande ?? "");
+    const taille = bornes ? Number(bornes[2]) - Number(bornes[1]) + 1 : CHUNK_SIZE;
+    void input;
+    return tranche(taille);
+  });
+  return mock;
+}
 
 const base = {
   accessToken: TOKEN,
@@ -313,17 +352,45 @@ describe("transfert fractionné", () => {
     );
   });
 
-  it("rend la main avant l'échéance plutôt que de perdre un morceau", async () => {
-    // Démarrer un envoi juste avant la fin du temps imparti, c'est le perdre.
+  it("REFUSE une fenêtre trop courte au lieu de rendre la main en silence", async () => {
+    // Ce test affirmait l'inverse, et c'est ce qui a laissé passer la panne en
+    // production : une fenêtre sous le seuil sortait sans rien faire, sans
+    // erreur ni trace, et la publication tournait en reprise perpétuelle.
+    // Un budget trop court est une erreur de câblage — elle doit se voir.
     const fetchMock = mockFetchSequence(tailleMedia(CHUNK_SIZE * 4));
-    await youtubePublisher.resumeTransfer!({
+    await expect(
+      youtubePublisher.resumeTransfer!({
+        accessToken: TOKEN,
+        containerId: SESSION,
+        mediaUrl: MEDIA,
+        deadline: Date.now() + YOUTUBE_MIN_TRANSFER_BUDGET_MS - 1,
+      }),
+    ).rejects.toMatchObject({ code: "transfer_window_too_small" });
+    // Le refus est immédiat : pas même la mesure de taille n'a été tentée.
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("s'interrompt à l'échéance après avoir réellement transféré", async () => {
+    // Au-dessus du seuil : le transfert démarre et progresse, puis l'échéance
+    // tombe. La session reste valide et Google conserve les octets reçus —
+    // c'est ce qui rend l'abandon sûr et dispense d'une réserve dimensionnée
+    // pour un morceau entier.
+    const total = CHUNK_SIZE * 500; // trop gros pour finir dans la fenêtre
+    const fetchMock = mockYouTubeEndurant(total);
+
+    const debut = Date.now();
+    const resultat = await youtubePublisher.resumeTransfer!({
       accessToken: TOKEN,
       containerId: SESSION,
       mediaUrl: MEDIA,
-      deadline: Date.now() + 1_000, // sous la réserve de sécurité
+      deadline: debut + YOUTUBE_MIN_TRANSFER_BUDGET_MS + 500,
     });
-    // Seule la mesure de taille a eu lieu : aucun envoi n'a été tenté.
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // Il a poussé, il n'a pas fini, et il a rendu la main de lui-même.
+    expect(resultat.pushedBytes).toBeGreaterThan(0);
+    expect(resultat.pushedBytes).toBeLessThan(total);
+    expect(Date.now() - debut).toBeLessThan(YOUTUBE_MIN_TRANSFER_BUDGET_MS + 3_000);
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(2);
   });
 
   it("s'arrête dès que la session est complète", async () => {

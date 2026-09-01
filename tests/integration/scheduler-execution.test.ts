@@ -25,8 +25,9 @@ import {
   type ContainerStatus,
   type SocialProvider,
 } from "@/server/social/providers/types";
+import { YOUTUBE_MIN_TRANSFER_BUDGET_MS } from "@/server/social/providers/youtube-publisher";
 import { schedulePublication } from "@/server/social/schedule";
-import { runScheduler, type SchedulerDeps } from "@/server/social/scheduler";
+import { MAX_ATTEMPTS, runScheduler, type SchedulerDeps } from "@/server/social/scheduler";
 import { vaultStore } from "@/server/social/vault";
 
 function loadEnvLocal(): Record<string, string> {
@@ -386,6 +387,116 @@ describe.skipIf(!CONFIGURED)("C10.2 — exécution du planificateur", () => {
     // reprise d'une republication, et ce qui évite un doublon chez Meta.
     expect(compteurs.creations).toBe(0);
     expect(compteurs.publications).toBe(1);
+  }, 60_000);
+
+  it("REPRISE FRACTIONNÉE : le budget RÉEL laisse de quoi transférer", async () => {
+    await purge();
+    // Ce test rejoue la panne du 2026-09-01. Le planificateur n'accordait que
+    // 8 s alors que le transfert s'en réservait 12 : `resumeTransfer` sortait
+    // sans pousser un octet, sans erreur, et la ligne était reprise sans fin.
+    //
+    // AUCUN `pollBudgetMs` n'est fourni ici : c'est SCHEDULER_POLL_BUDGET_MS,
+    // la valeur de production, qui doit suffire.
+    const { data: inserted } = await admin
+      .from("social_publications")
+      .insert({
+        workspace_id: workspaceId,
+        social_account_id: accountId,
+        platform: "facebook",
+        provider_account_id: "1290000000000102",
+        media_kind: "reel",
+        media_url: "https://cdn.example.com/fractionnee.mp4",
+        caption: "C10.2 — transfert fractionné",
+        status: "pending",
+        container_id: "session-resumable-existante",
+        scheduled_at: new Date(Date.now() - 5 * 60_000).toISOString(),
+        requested_by: ownerId,
+      })
+      .select("id")
+      .single();
+    const id = (inserted as { id: string }).id;
+
+    const compteurs: Compteurs = { creations: 0, publications: 0 };
+    const transferts: { fenetre: number; octets: number }[] = [];
+    const provider = fakeProvider(compteurs, { status: "processing" });
+    let restant = 2;
+    provider.publisher!.resumeTransfer = async ({ deadline }) => {
+      const fenetre = deadline - Date.now();
+      // La fenêtre reçue doit permettre de tenter quelque chose.
+      if (fenetre < YOUTUBE_MIN_TRANSFER_BUDGET_MS) {
+        transferts.push({ fenetre, octets: 0 });
+        return { pushedBytes: 0 };
+      }
+      restant -= 1;
+      transferts.push({ fenetre, octets: 1_024 });
+      return { pushedBytes: 1_024 };
+    };
+    provider.publisher!.containerStatus = async () =>
+      restant > 0 ? "processing" : ("ready" as ContainerStatus);
+
+    const rapport = await runScheduler({
+      ...deps(provider),
+      staleAfter: "0 seconds",
+    });
+
+    // LE POINT : des octets sont réellement partis, et la fenêtre accordée
+    // était au-dessus du minimum du transfert fractionné.
+    expect(transferts.length).toBeGreaterThanOrEqual(1);
+    expect(transferts[0].fenetre).toBeGreaterThanOrEqual(YOUTUBE_MIN_TRANSFER_BUDGET_MS);
+    expect(transferts.every((t) => t.octets > 0)).toBe(true);
+    expect(rapport.resumed).toBeGreaterThanOrEqual(1);
+
+    const rows = await lignes();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].id).toBe(id);
+    expect(rows[0].status).toBe("published");
+    // Toujours une seule session : rien n'a été rouvert.
+    expect(compteurs.creations).toBe(0);
+  }, 60_000);
+
+  it("tentatives épuisées : la ligne est CONCLUE, pas laissée en attente à vie", async () => {
+    await purge();
+    // `claim_stale_publications` ne rend que les lignes sous le plafond. Une
+    // fois celui-ci atteint, la ligne n'était plus jamais réclamée — et restait
+    // `pending` pour toujours : affichée « en cours » à un client qui attendait
+    // pour rien, absente des échecs. C'est ce trou que ce test ferme.
+    const { data: inserted } = await admin
+      .from("social_publications")
+      .insert({
+        workspace_id: workspaceId,
+        social_account_id: accountId,
+        platform: "facebook",
+        provider_account_id: "1290000000000102",
+        media_kind: "reel",
+        media_url: "https://cdn.example.com/epuisee.mp4",
+        caption: "C10.2 — tentatives épuisées",
+        status: "pending",
+        container_id: "session-qui-n-avance-plus",
+        attempts: MAX_ATTEMPTS,
+        scheduled_at: new Date(Date.now() - 5 * 60_000).toISOString(),
+        requested_by: ownerId,
+      })
+      .select("id")
+      .single();
+    const id = (inserted as { id: string }).id;
+
+    const compteurs: Compteurs = { creations: 0, publications: 0 };
+    const rapport = await runScheduler({
+      ...deps(fakeProvider(compteurs, { status: "processing" })),
+      staleAfter: "0 seconds",
+    });
+
+    expect(rapport.failed).toContainEqual({ publicationId: id, code: "transfer_stalled" });
+
+    const rows = await lignes();
+    expect(rows[0].status).toBe("failed");
+    expect(rows[0].status_detail).toBe("transfer_stalled");
+    // Le conteneur est CONSERVÉ : la session distante peut encore valoir
+    // quelque chose, et l'effacer interdirait toute reprise manuelle.
+    expect(rows[0].container_id).toBe("session-qui-n-avance-plus");
+    // Rien n'a été renvoyé à la plateforme.
+    expect(compteurs.creations).toBe(0);
+    expect(compteurs.publications).toBe(0);
   }, 60_000);
 
   it("réclamée puis interrompue AVANT le conteneur : rattrapée, pas perdue", async () => {

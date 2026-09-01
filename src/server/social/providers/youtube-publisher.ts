@@ -91,11 +91,32 @@ const DESCRIPTION_MAX_LENGTH = 5000;
 export const CHUNK_SIZE = 8 * 1024 * 1024;
 
 /**
- * Marge conservée avant l'échéance. Envoyer un morceau demande le temps de le
- * lire ET de le pousser : démarrer un envoi à trois secondes de la fin, c'est
- * le perdre. Mieux vaut rendre la main et reprendre proprement.
+ * Marge conservée pour rendre la main proprement.
+ *
+ * ELLE N'A PAS À COUVRIR UN MORCEAU ENTIER, et c'est le cœur du correctif.
+ * `sessionOffset` demande la position réelle À GOOGLE avant chaque envoi :
+ * un morceau interrompu en vol n'est donc pas une perte de données mais une
+ * progression partielle, que la reprise suivante lit telle quelle. Il suffit
+ * d'avoir le temps d'abandonner la requête et de revenir.
+ *
+ * La version précédente réservait 12 s — le temps supposé d'un morceau complet.
+ * Aucun appelant n'accordant autant, la condition de garde était vraie dès la
+ * première itération et AUCUN octet ne partait jamais, sans erreur ni trace.
  */
-const RESERVE_MS = 12_000;
+const TRANSFER_TAIL_MS = 1_500;
+
+/**
+ * Fenêtre minimale sous laquelle tenter un envoi n'a plus de sens : le temps
+ * d'interroger la session et d'ouvrir la lecture du média.
+ */
+const MIN_TRANSFER_WINDOW_MS = 3_000;
+
+/**
+ * Budget minimal qu'un appelant DOIT accorder pour que `resumeTransfer` puisse
+ * tenter quelque chose. Exporté pour que les appelants soient vérifiables :
+ * c'est l'absence de cette confrontation qui a laissé passer la panne.
+ */
+export const YOUTUBE_MIN_TRANSFER_BUDGET_MS = MIN_TRANSFER_WINDOW_MS + TRANSFER_TAIL_MS;
 
 /** Visibilité imposée tant que le projet n'est pas audité (voir en-tête). */
 const PRIVACY_STATUS = "private";
@@ -165,6 +186,7 @@ async function sessionOffset(
   sessionUri: string,
   accessToken: string,
   total: number,
+  signal?: AbortSignal,
 ): Promise<number | null> {
   const response = await fetch(sessionUri, {
     method: "PUT",
@@ -173,6 +195,7 @@ async function sessionOffset(
       "content-range": `bytes */${total}`,
       "content-length": "0",
     },
+    signal,
   });
 
   if (response.status === 308) {
@@ -201,10 +224,11 @@ async function pushChunk(
   mediaUrl: string,
   debut: number,
   total: number,
+  signal?: AbortSignal,
 ): Promise<boolean> {
   const fin = Math.min(debut + CHUNK_SIZE, total) - 1;
 
-  const media = await fetch(mediaUrl, { headers: { range: `bytes=${debut}-${fin}` } });
+  const media = await fetch(mediaUrl, { headers: { range: `bytes=${debut}-${fin}` }, signal });
   if (!media.ok && media.status !== 206) {
     throw new SocialPublishError("media_unreadable", `youtube media: HTTP ${media.status}`);
   }
@@ -221,11 +245,31 @@ async function pushChunk(
       "content-range": `bytes ${debut}-${debut + bytes.byteLength - 1}/${total}`,
     },
     body: bytes,
+    signal,
   });
 
   if (response.status === 308) return false;
   if (response.ok) return true;
   throw await googleFailure(response, "upload chunk");
+}
+
+/**
+ * Signal d'abandon calé sur l'échéance, ou `undefined` si l'environnement ne
+ * sait pas le fabriquer. Une requête ne doit jamais survivre à l'invocation
+ * qui l'a lancée : ce qu'elle rendrait n'irait plus nulle part.
+ */
+function signalJusqua(deadline: number): AbortSignal | undefined {
+  const restant = deadline - Date.now();
+  if (restant <= 0) return undefined;
+  return AbortSignal.timeout(restant);
+}
+
+/** Un abandon sur échéance n'est pas une panne : c'est la fin du temps imparti. */
+function estAbandon(error: unknown): boolean {
+  return (
+    error instanceof DOMException &&
+    (error.name === "TimeoutError" || error.name === "AbortError")
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -309,20 +353,48 @@ export const youtubePublisher: SocialPublisher = {
    * question à Google sur la position réelle — jamais d'une hypothèse.
    */
   async resumeTransfer({ accessToken, containerId, mediaUrl, deadline }) {
-    const total = await totalFromMedia(mediaUrl);
+    // UNE FENÊTRE TROP COURTE EST UNE ERREUR DE CÂBLAGE, PAS UN ALÉA.
+    //
+    // Rendre la main en silence laisserait la publication tourner en reprise
+    // sans jamais progresser, sans erreur et sans trace — c'est exactement la
+    // panne que ce module a produite en production. On refuse donc bruyamment :
+    // le code remonte jusqu'à `status_detail`, et un test confronte ce seuil
+    // aux budgets réels des deux appelants.
+    if (deadline - Date.now() < YOUTUBE_MIN_TRANSFER_BUDGET_MS) {
+      throw new SocialPublishError(
+        "transfer_window_too_small",
+        `youtube transfer: fenêtre < ${YOUTUBE_MIN_TRANSFER_BUDGET_MS} ms`,
+      );
+    }
+
+    const total = await totalFromMedia(mediaUrl, signalJusqua(deadline));
     if (total <= 0) {
       throw new SocialPublishError("media_unreadable", "youtube media: taille inconnue");
     }
 
-    for (;;) {
-      if (Date.now() + RESERVE_MS >= deadline) return;
+    let pushedBytes = 0;
+    try {
+      for (;;) {
+        if (Date.now() + TRANSFER_TAIL_MS >= deadline) break;
 
-      const offset = await sessionOffset(containerId, accessToken, total);
-      if (offset === null) return; // Terminé : plus rien à pousser.
+        const signal = signalJusqua(deadline - TRANSFER_TAIL_MS);
+        const offset = await sessionOffset(containerId, accessToken, total, signal);
+        if (offset === null) break; // Terminé : plus rien à pousser.
 
-      const fini = await pushChunk(containerId, accessToken, mediaUrl, offset, total);
-      if (fini) return;
+        // `pushChunk` qui revient signifie que le PUT est allé au bout : le
+        // morceau entier a été accepté. Un abandon en vol sort par le `catch`
+        // et ne compte rien — la vérité reste chez Google, pas ici.
+        const tailleMorceau = Math.min(offset + CHUNK_SIZE, total) - offset;
+        const fini = await pushChunk(containerId, accessToken, mediaUrl, offset, total, signal);
+        pushedBytes += tailleMorceau;
+        if (fini) break;
+      }
+    } catch (error) {
+      // Un abandon sur échéance n'annule rien : Google conserve ce qu'il a reçu
+      // et la reprise suivante repartira de l'octet qu'il confirmera lui-même.
+      if (!estAbandon(error)) throw error;
     }
+    return { pushedBytes };
   },
 
   /**
@@ -399,8 +471,8 @@ export const youtubePublisher: SocialPublisher = {
  * pas accès aux métadonnées de la médiathèque : le stockage est ici la source
  * la plus fiable, et il répond sans transférer un octet.
  */
-async function totalFromMedia(mediaUrl: string): Promise<number> {
-  const response = await fetch(mediaUrl, { method: "HEAD" });
+async function totalFromMedia(mediaUrl: string, signal?: AbortSignal): Promise<number> {
+  const response = await fetch(mediaUrl, { method: "HEAD", signal });
   if (!response.ok) return 0;
   const length = response.headers.get("content-length");
   return length ? Number(length) : 0;

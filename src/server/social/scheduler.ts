@@ -31,10 +31,26 @@ import type { PublishMediaKind } from "./providers/types";
 /** Lot volontairement petit : mieux vaut plusieurs réveils que l'un interminable. */
 export const BATCH_SIZE = 3;
 /**
- * Attente courte : le planificateur ne fait pas patienter la base. Ce qui
- * n'aboutit pas est repris au réveil suivant, sans jamais renvoyer le média.
+ * Budget par publication, DÉRIVÉ DES LIMITES RÉELLES et non choisi au jugé.
+ *
+ * `/api/cron/publish` déclare `maxDuration = 120` s. Un réveil traite au pire
+ * `BATCH_SIZE` échéances dues PUIS `BATCH_SIZE` reprises, soit 6 publications :
+ * 6 × 15 s = 90 s, ce qui laisse 30 s pour les allers-retours en base et la
+ * marge d'arrêt de la fonction.
+ *
+ * Le plancher est l'autre moitié de la contrainte : sous
+ * `YOUTUBE_MIN_TRANSFER_BUDGET_MS`, un transfert fractionné ne peut RIEN
+ * tenter. Les 8 s précédentes étaient sous ce seuil, et la publication tournait
+ * en reprise perpétuelle sans envoyer un octet. Un test confronte désormais ces
+ * deux constantes.
  */
-export const SCHEDULER_POLL_BUDGET_MS = 8_000;
+export const SCHEDULER_POLL_BUDGET_MS = 15_000;
+
+/**
+ * Plafond de tentatives, tenu ICI et passé explicitement à la base : laisser la
+ * valeur par défaut des deux côtés les faisait diverger en silence.
+ */
+export const MAX_ATTEMPTS = 10;
 
 export type SchedulerReport = {
   /** Échéances dues réclamées à ce réveil. */
@@ -75,6 +91,8 @@ export type SchedulerDeps = PublishDeps & {
    * peut pas vieillir une ligne artificiellement, d'où ce réglage.
    */
   staleAfter?: string;
+  /** Plafond de tentatives, injectable pour les tests. Défaut : `MAX_ATTEMPTS`. */
+  maxAttempts?: number;
 };
 
 /**
@@ -133,6 +151,7 @@ export async function runScheduler(deps: SchedulerDeps): Promise<SchedulerReport
   // --- 2. Publications restées en cours --------------------------------------
   const bloquees = await claim(deps.db, "claim_stale_publications", {
     p_limit: limite,
+    p_max_attempts: deps.maxAttempts ?? MAX_ATTEMPTS,
     ...(deps.staleAfter ? { p_stale_after: deps.staleAfter } : {}),
   });
 
@@ -167,7 +186,44 @@ export async function runScheduler(deps: SchedulerDeps): Promise<SchedulerReport
     }
   }
 
+  // --- 3. Tentatives épuisées ------------------------------------------------
+  //
+  // `claim_stale_publications` ne rend QUE les lignes sous le plafond. Une fois
+  // celui-ci atteint, la ligne cesse d'être réclamée — mais elle reste
+  // `pending`, donc affichée « en cours » à un client qui attendra pour rien,
+  // et invisible dans les échecs. Elle doit être conclue.
+  //
+  // Le conteneur n'est PAS effacé : la session distante peut encore valoir
+  // quelque chose, et l'effacer interdirait toute reprise manuelle.
+  const epuisees = await lireEpuisees(deps.db, deps.maxAttempts ?? MAX_ATTEMPTS, limite);
+  for (const id of epuisees) {
+    await markFailed(deps.db, id, "transfer_stalled");
+    rapport.failed.push({ publicationId: id, code: "transfer_stalled" });
+  }
+
   return rapport;
+}
+
+/**
+ * Publications restées `pending` alors qu'elles ne seront plus jamais
+ * réclamées. Lecture stricte : ni le conteneur ni le média ne sont touchés.
+ */
+async function lireEpuisees(
+  db: SupabaseClient,
+  maxAttempts: number,
+  limite: number,
+): Promise<string[]> {
+  const { data, error } = await db
+    .from("social_publications")
+    .select("id")
+    .eq("status", "pending")
+    .gte("attempts", maxAttempts)
+    .limit(limite);
+  if (error) {
+    console.error(`[scheduler] lecture epuisees: ${error.code}`);
+    return [];
+  }
+  return (data ?? []).map((ligne) => (ligne as { id: string }).id);
 }
 
 /**
