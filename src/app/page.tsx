@@ -11,10 +11,11 @@ import { PLANS, formatPlanPrice } from "@/config/plans";
  * C'est la page que Meta, TikTok et Google ouvrent en premier lors de leurs
  * examens, avant même les documents légaux. Trois partis pris en découlent :
  *
- * 1. elle décrit ce que le produit fait RÉELLEMENT aujourd'hui. Annoncer la
- *    publication sur quatre réseaux alors que seuls deux disposent d'un
- *    `publisher` serait un mensonge vérifiable en trente secondes par un
- *    examinateur, et le meilleur moyen de faire échouer une App Review ;
+ * 1. elle décrit ce que le produit fait RÉELLEMENT aujourd'hui. Les quatre
+ *    réseaux disposent désormais d'un `publisher`, mais deux restent fermés
+ *    en amont par leur plateforme : annoncer la publication sur les quatre
+ *    serait un mensonge vérifiable en trente secondes par un examinateur, et
+ *    le meilleur moyen de faire échouer une App Review ;
  * 2. les tarifs viennent de `PLANS`, comme les CGU : une grille qui diverge
  *    d'un écran à l'autre est un litige commercial en puissance ;
  * 3. les liens d'action pointent en relatif. Le proxy les enverra vers
@@ -39,24 +40,30 @@ export const metadata: Metadata = {
  *     reste fermée en amont — le média doit être servi par un domaine que
  *     TikTok a vérifié, et l'application est encore en Sandbox. Annoncer
  *     « TikTok » ici serait donc faux tant que ces deux verrous tiennent ;
- *   · YouTube n'a pas encore de `publisher`.
+ *   · YouTube publie réellement — une vidéo a été transférée et publiée en
+ *     Production le 2026-09-01 — mais la chaîne reste fermée en amont, pour
+ *     DEUX raisons vérifiables dans le code : l'écran de consentement Google
+ *     est en statut « Testing », donc seuls des comptes de test déclarés
+ *     peuvent se connecter (`youtube.ts`), et le projet n'étant pas audité,
+ *     `privacyStatus` est forcé à `private` (`youtube-publisher.ts`). Une
+ *     vidéo de client ne serait donc visible de personne.
  *
- * Cette liste passe à `true` quand la publication marche VRAIMENT, jamais
- * quand le code est prêt. Un examinateur vérifie en trente secondes.
+ * Cette liste passe à `true` quand la publication marche VRAIMENT POUR UN
+ * CLIENT, jamais quand le code est prêt. Un examinateur vérifie en trente
+ * secondes.
  *
  * `attente` précise CE QU'ON ATTEND, quand ce n'est pas la même chose d'un
- * réseau à l'autre. « À venir » couvre le cas de YouTube, dont l'intégration
- * reste à écrire. Il décrivait mal TikTok, dont la chaîne technique est
- * terminée et éprouvée de bout en bout : ce qui manque là n'est pas du code,
- * c'est l'approbation de la plateforme. Le dire exactement évite deux
- * malentendus opposés — laisser croire que rien n'existe, et laisser croire
- * que le réseau est ouvert aux clients.
+ * réseau à l'autre. Il n'y a plus de cas « à venir » : les quatre réseaux
+ * sont écrits. TikTok et YouTube attendent chacun l'approbation de leur
+ * plateforme, et le dire exactement évite deux malentendus opposés — laisser
+ * croire que rien n'existe, et laisser croire que le réseau est ouvert aux
+ * clients.
  */
 const RESEAUX = [
   { nom: "Instagram", publication: true },
   { nom: "Facebook", publication: true },
   { nom: "TikTok", publication: false, attente: "en cours de validation par TikTok" },
-  { nom: "YouTube", publication: false },
+  { nom: "YouTube", publication: false, attente: "en cours de validation par Google" },
 ] as const;
 
 const CAPACITES = [
