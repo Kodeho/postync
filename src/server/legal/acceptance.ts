@@ -16,6 +16,12 @@ import { createServiceClient } from "@/server/supabase/service-client";
  *     sont celles du serveur, jamais celles qu'un formulaire prétendrait.
  *   - la LECTURE passe par le client de l'utilisateur, sous RLS. La garde lit
  *     donc ce que la base l'autorise à voir, et rien de plus.
+ *
+ * AUCUN RÔLE APPLICATIF NE PEUT EFFACER NI RÉÉCRIRE UNE ACCEPTATION.
+ * `service_role` n'a que `SELECT` et `INSERT` ; `UPDATE` et `DELETE` ne sont
+ * accordés à personne. Ce module ne comporte donc volontairement aucune
+ * fonction de suppression : la seule disparition légitime est la cascade sur
+ * suppression du compte, exécutée par le moteur et non par un appel d'ici.
  */
 
 /** Le couple de versions actuellement en vigueur. Source : `config/legal`. */

@@ -78,6 +78,11 @@ create policy legal_acceptances_select_own
 -- `UPDATE` n'est accordé à PERSONNE, pas même à `service_role` : une preuve
 -- d'acceptation qu'on peut réécrire n'est pas une preuve. La seule
 -- disparition légitime est la cascade sur suppression du compte.
+-- NOTE — le `delete` accordé ici à `service_role` est RETIRÉ par la migration
+-- `20260901150000`. Il n'était nécessaire à rien : la cascade sur suppression
+-- du compte est exécutée par le moteur, pas par un appel applicatif. Ce
+-- fichier n'est pas corrigé en place — il est déjà appliqué, et le réécrire
+-- ferait diverger la migration de ce qui a réellement été exécuté.
 revoke all on table public.legal_acceptances from public, anon, authenticated;
 revoke all on table public.legal_acceptances from service_role;
 grant select on table public.legal_acceptances to authenticated;

@@ -29,8 +29,8 @@
  * une base comme dans un échange avec un utilisateur, contrairement à un
  * numéro de révision.
  */
-export const TERMS_VERSION = "2026-08-28";
-export const PRIVACY_VERSION = "2026-08-28";
+export const TERMS_VERSION = "2026-09-01";
+export const PRIVACY_VERSION = "2026-09-01";
 
 /**
  * Date de dernière mise à jour affichée sur les documents. Dérivée des deux

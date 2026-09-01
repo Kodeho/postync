@@ -8,6 +8,7 @@
  * balisage —, et il tourne dès maintenant.
  */
 
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -52,6 +53,42 @@ describe("versions légales", () => {
       TERMS_VERSION >= PRIVACY_VERSION ? TERMS_VERSION : PRIVACY_VERSION,
     );
     expect(lire("src/config/legal.ts")).not.toMatch(/LEGAL_LAST_UPDATED = "\d{4}/);
+  });
+
+  /**
+   * UN DOCUMENT MODIFIÉ NE PEUT PAS ANNONCER UNE VERSION ANTÉRIEURE.
+   *
+   * C'est exactement l'incohérence qui a été introduite ici : les deux pages
+   * légales ont été matériellement modifiées le 2026-09-01, et les versions
+   * annonçaient encore le 2026-08-28. Une acceptation aurait alors été
+   * enregistrée pour une version qui ne correspondait plus au texte affiché —
+   * c'est-à-dire une preuve fausse.
+   *
+   * La date de dernière modification est lue dans GIT, seule source qui ne
+   * puisse pas être oubliée : modifier la page sans toucher la version fait
+   * échouer ce test au commit suivant.
+   */
+  it.each([
+    ["CGU", "src/app/terms/page.tsx", TERMS_VERSION],
+    ["confidentialité", "src/app/privacy/page.tsx", PRIVACY_VERSION],
+  ])("la version des %s couvre la dernière modification de la page", (_nom, chemin, version) => {
+    const derniere = execFileSync("git", ["log", "-1", "--format=%cs", "--", chemin], {
+      encoding: "utf8",
+      cwd: process.cwd(),
+    }).trim();
+
+    // Sans historique (archive, export), le test ne peut rien affirmer : il
+    // s'abstient plutôt que de valider à tort.
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(derniere)) {
+      expect(derniere).toBe("");
+      return;
+    }
+
+    // Comparaison lexicographique : le format `AAAA-MM-JJ` la rend exacte.
+    expect(
+      version >= derniere,
+      `${chemin} modifiée le ${derniere} mais annoncée en version ${version}`,
+    ).toBe(true);
   });
 });
 

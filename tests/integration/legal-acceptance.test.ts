@@ -225,6 +225,50 @@ describe.skipIf(!CONFIGURED)("C17 — historisation de l'acceptation", () => {
     expect(data!.length).toBeGreaterThanOrEqual(1);
   });
 
+  it("les VERSIONS enregistrées sont celles du serveur, et valent 2026-09-01", async () => {
+    if (!tablePresente) return expect(tablePresente).toBe(false);
+    // Les deux documents ont été matériellement modifiés le 2026-09-01 : une
+    // acceptation enregistrée sous une version antérieure serait une preuve
+    // fausse, puisqu'elle ne correspondrait plus au texte affiché.
+    expect(TERMS_VERSION).toBe("2026-09-01");
+    expect(PRIVACY_VERSION).toBe("2026-09-01");
+
+    const { data } = await admin
+      .from("legal_acceptances")
+      .select("terms_version, privacy_version")
+      .eq("user_id", ids.accepte)
+      .eq("terms_version", TERMS_VERSION);
+    expect(data!.length).toBeGreaterThanOrEqual(1);
+    expect(data![0].privacy_version).toBe("2026-09-01");
+  });
+
+  it("PERSONNE ne peut supprimer une acceptation, pas même service_role", async () => {
+    if (!tablePresente) return expect(tablePresente).toBe(false);
+    const { count: avant } = await admin
+      .from("legal_acceptances")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", ids.accepte);
+    expect(avant).toBeGreaterThanOrEqual(1);
+
+    // 1. Le client authenticated : refusé (aucun droit, aucune politique).
+    await clients.accepte.from("legal_acceptances").delete().eq("user_id", ids.accepte);
+
+    // 2. `service_role` : le droit `DELETE` lui a été RETIRÉ. C'est la seule
+    //    façon de garantir qu'aucun chemin applicatif ne peut effacer une
+    //    preuve — le module `server/legal/acceptance.ts` ne comporte
+    //    d'ailleurs aucune fonction de suppression.
+    const { error } = await admin
+      .from("legal_acceptances").delete().eq("user_id", ids.accepte);
+    expect(error).not.toBeNull();
+    expect(`${error!.code} ${error!.message}`).toMatch(/42501|permission denied/i);
+
+    const { count: apres } = await admin
+      .from("legal_acceptances")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", ids.accepte);
+    expect(apres).toBe(avant);
+  });
+
   it("la suppression du compte emporte ses acceptations", async () => {
     if (!tablePresente) return expect(tablePresente).toBe(false);
     const { data: jetable } = await admin.auth.admin.createUser({
@@ -237,6 +281,12 @@ describe.skipIf(!CONFIGURED)("C17 — historisation de l'acceptation", () => {
       terms_version: TERMS_VERSION,
       privacy_version: PRIVACY_VERSION,
     });
+    // LA CASCADE N'A PAS BESOIN DU DROIT `DELETE`, et c'est tout l'intérêt :
+    // `on delete cascade` est exécutée par le MOTEUR au nom du propriétaire de
+    // la contrainte, pas au nom du rôle qui lance la suppression. Retirer
+    // `DELETE` à `service_role` ne casse donc pas l'effacement légitime — ce
+    // test le prouve, juste après celui qui montre que la suppression directe
+    // est refusée.
     await admin.auth.admin.deleteUser(jetable.user!.id);
 
     const { count } = await admin
