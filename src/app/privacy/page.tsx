@@ -160,6 +160,99 @@ export default function PrivacyPage() {
           que vous demandez explicitement. Nous n&apos;utilisons ces données ni à des fins
           publicitaires, ni pour entraîner un modèle, et ne les revendons pas.
         </p>
+
+        {/*
+          Divulgation exigee par les YouTube API Services Terms of Service et par
+          les Developer Policies : nommer les YouTube API Services, renvoyer a la
+          politique de confidentialite de Google ET au panneau de securite Google
+          permettant de revoquer l'acces. Les trois liens sont OBLIGATOIRES.
+
+          Tout ce qui suit decrit le comportement REEL du code, pas une intention :
+          les donnees listees sont celles que `youtube.ts` lit et que
+          `social_accounts` stocke, et les delais sont ceux qu'executent
+          `disconnectSocialAccount` et le trigger `social_accounts_purge_secrets`.
+        */}
+        <h3 className="mt-6 text-base font-semibold text-foreground">YouTube</h3>
+        <p>
+          {PRODUCT_NAME} utilise les{" "}
+          <span className="font-medium">YouTube API Services</span> pour publier vos vidéos sur
+          votre chaîne. À ce titre, les données que Google traite le sont conformément à la{" "}
+          <a
+            href="https://policies.google.com/privacy"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary underline-offset-4 hover:underline"
+          >
+            politique de confidentialité de Google
+          </a>
+          .
+        </p>
+        <p className="font-medium">Ce que nous consultons et conservons</p>
+        <ul className="list-disc pl-5">
+          <li>
+            <span className="font-medium">L&apos;identité de votre chaîne</span> — identifiant, nom
+            affiché et image de profil, lus une seule fois juste après votre autorisation, pour que
+            vous sachiez sur quelle chaîne vous publiez.
+          </li>
+          <li>
+            <span className="font-medium">Les jetons d&apos;autorisation</span> — conservés
+            chiffrés dans un coffre, jamais en clair, et jamais accessibles depuis le navigateur.
+          </li>
+          <li>
+            <span className="font-medium">Ce que vous publiez</span> — le titre, la description et
+            le fichier que vous nous confiez, puis l&apos;identifiant et le lien de la vidéo créée,
+            conservés dans votre historique de publications.
+          </li>
+        </ul>
+        <p>
+          Nous ne lisons <span className="font-medium">rien d&apos;autre</span> : ni vos autres
+          vidéos, ni vos statistiques, ni vos playlists, ni vos commentaires, ni vos abonnés. La
+          seule écriture que nous effectuons est l&apos;envoi de la vidéo que vous avez demandée.
+        </p>
+        <p className="font-medium">Retirer notre accès</p>
+        <ul className="list-disc pl-5">
+          <li>
+            <span className="font-medium">Depuis {PRODUCT_NAME}</span> — « Déconnecter » sur la page
+            Comptes sociaux. Nous demandons{" "}
+            <span className="font-medium">immédiatement à Google de révoquer</span> le jeton. Cet
+            appel dépend de Google et peut échouer ; c&apos;est pourquoi la suppression chez nous
+            n&apos;en dépend pas : la ligne du compte, les jetons du coffre et les données de
+            plateforme de votre historique sont supprimés{" "}
+            <span className="font-medium">dans tous les cas</span>, en une seule opération. Il ne
+            subsiste aucun secret. Si la révocation chez Google n&apos;aboutissait pas, vous pouvez
+            toujours retirer l&apos;accès depuis votre compte Google, ci-dessous.
+          </li>
+          <li>
+            <span className="font-medium">Depuis Google</span> — vous pouvez retirer l&apos;accès de{" "}
+            {PRODUCT_NAME} à tout moment depuis les{" "}
+            <a
+              href="https://security.google.com/settings/security/permissions"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary underline-offset-4 hover:underline"
+            >
+              paramètres de sécurité de votre compte Google
+            </a>
+            .
+          </li>
+        </ul>
+        <p>
+          <span className="font-medium">La déconnexion purge aussi votre historique</span> de toute
+          donnée venant de YouTube : identifiant de chaîne, identifiant de vidéo, lien de la vidéo
+          et identifiant de session d&apos;envoi sont effacés des publications passées, dans la même
+          opération que la suppression du compte — jamais l&apos;une sans l&apos;autre.
+        </p>
+        <p>
+          Ne subsiste que ce que vous nous avez donné ou ce qui nous est propre : la date, le
+          statut, votre légende et le média que vous aviez importé. Votre historique garde donc son
+          sens — « une vidéo est partie sur YouTube tel jour » — sans porter la moindre donnée de la
+          plateforme. Une publication encore en cours au moment de la déconnexion est arrêtée : elle
+          ne peut pas se poursuivre sans autorisation.
+        </p>
+        <p>
+          La vidéo déjà publiée, elle, <span className="font-medium">reste sur votre chaîne</span> :
+          elle vous appartient, et seule YouTube peut la retirer — depuis votre compte YouTube.
+        </p>
       </LegalSection>
 
       <LegalSection id="destinataires" title="6. Destinataires et transferts">

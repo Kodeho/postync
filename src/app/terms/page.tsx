@@ -99,6 +99,27 @@ export default function TermsPage() {
           L&apos;autorisation que vous accordez est révocable à tout moment, depuis {PRODUCT_NAME} ou
           depuis le réseau concerné. Une révocation interrompt la publication vers ce compte.
         </p>
+        {/*
+          Exigence des YouTube API Services Terms of Service : un client d'API
+          doit afficher un lien vers les conditions de YouTube et indiquer que
+          l'utilisateur y est lié. Ce lien est OBLIGATOIRE et son absence est un
+          motif de refus courant lors de l'audit de conformité.
+        */}
+        <p>
+          {PRODUCT_NAME} publie sur YouTube au moyen des{" "}
+          <span className="font-medium">YouTube API Services</span>. En utilisant les fonctions
+          YouTube de {PRODUCT_NAME}, vous acceptez d&apos;être lié par les{" "}
+          <a
+            href="https://www.youtube.com/t/terms"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary underline-offset-4 hover:underline"
+          >
+            Conditions d&apos;utilisation de YouTube
+          </a>
+          . Elles s&apos;appliquent en plus des présentes conditions, et les nôtres ne peuvent pas
+          vous en délier.
+        </p>
       </LegalSection>
 
       <LegalSection id="contenus" title="4. Vos contenus et vos responsabilités">
