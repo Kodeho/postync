@@ -42,8 +42,11 @@ describe("URL d'autorisation (doc web-server officielle)", () => {
     expect(url.searchParams.get("client_id")).toBe("test-client-id.apps.googleusercontent.com");
     expect(url.searchParams.get("redirect_uri")).toBe(REDIRECT);
     expect(url.searchParams.get("response_type")).toBe("code");
-    // Moindre privilège C8 : lecture seule uniquement, pas d'upload.
-    expect(url.searchParams.get("scope")).toBe("https://www.googleapis.com/auth/youtube.readonly");
+    // Séparateur ESPACE — spécificité Google, là où TikTok veut des virgules.
+    expect(url.searchParams.get("scope")).toBe(
+      "https://www.googleapis.com/auth/youtube.readonly " +
+        "https://www.googleapis.com/auth/youtube.upload",
+    );
     expect(url.searchParams.get("state")).toBe("state-opaque");
     expect(url.searchParams.get("access_type")).toBe("offline");
     expect(url.searchParams.get("prompt")).toBe("consent");
@@ -55,8 +58,24 @@ describe("URL d'autorisation (doc web-server officielle)", () => {
     expect(url.toString()).not.toContain("test-client-secret");
   });
 
-  it("le périmètre C8 n'inclut aucun scope de publication", () => {
-    expect(YOUTUBE_SCOPES).toEqual(["https://www.googleapis.com/auth/youtube.readonly"]);
+  it("demande la lecture de la chaîne ET l'envoi, et rien de plus", () => {
+    // La borne HAUTE est le vrai sujet. `videos.insert` accepte aussi
+    // `youtube`, `youtube.force-ssl` et `youtubepartner` — tous bien plus
+    // larges que ce dont POSTYNC a besoin. `youtube.upload` est le minimum
+    // qui autorise l'envoi, et c'est celui-là qu'on prend.
+    //
+    // `youtube.readonly` reste parce qu'il SERT : il porte
+    // `channels.list?mine=true`, seul moyen d'identifier la chaîne connectée
+    // et de détecter un compte Google qui n'en a aucune. `youtube.upload`
+    // seul ne donne pas cette lecture.
+    expect(YOUTUBE_SCOPES).toEqual([
+      "https://www.googleapis.com/auth/youtube.readonly",
+      "https://www.googleapis.com/auth/youtube.upload",
+    ]);
+    // Aucun scope large ne doit s'y glisser.
+    for (const large of ["auth/youtube ", "force-ssl", "youtubepartner"]) {
+      expect(YOUTUBE_SCOPES.join(" ") + " ").not.toContain(large);
+    }
   });
 });
 

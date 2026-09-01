@@ -419,6 +419,7 @@ export async function broadcastAction(
     .filter((value) => UUID.test(value));
 
   const caption = String(formData.get("caption") ?? "").trim();
+  const title = String(formData.get("title") ?? "").trim();
   const scheduledAt = String(formData.get("scheduledAt") ?? "").trim();
 
   const { supabase, user } = await requireUser();
@@ -434,6 +435,7 @@ export async function broadcastAction(
       mediaKind: mediaKindRaw,
       mediaAssetId,
       caption: caption.length > 0 ? caption : null,
+      title: title.length > 0 ? title : null,
       socialAccountIds,
       scheduledAt: scheduledAt.length > 0 ? scheduledAt : null,
       shareToFeed: formData.get("shareToFeed") === "on",

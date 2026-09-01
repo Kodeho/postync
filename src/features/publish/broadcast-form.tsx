@@ -31,6 +31,9 @@ export type BroadcastAccount = {
   unavailableReason: string | null;
 };
 
+/** `snippet.title` chez YouTube — limite officielle de l'API. */
+const TITRE_MAX = 100;
+
 export type BroadcastMedia = {
   id: string;
   label: string;
@@ -57,6 +60,7 @@ export function BroadcastForm({
 
   const [assetId, setAssetId] = useState<string>(media[0]?.id ?? "");
   const [selected, setSelected] = useState<string[]>([]);
+  const [titre, setTitre] = useState("");
   const [quand, setQuand] = useState<"maintenant" | "plus-tard">("maintenant");
   const [echeanceLocale, setEcheanceLocale] = useState("");
   const [bornes, setBornes] = useState<{ min: string; max: string } | null>(null);
@@ -106,6 +110,16 @@ export function BroadcastForm({
   const retenus = selected.filter((id) => cochables.includes(id));
   const tropDeCibles = retenus.length > remainingThisMonth;
 
+  // YouTube EXIGE un titre (`snippet.title`), les autres réseaux n'en ont pas
+  // la notion. Le champ n'apparaît donc que s'il sert, et ne bloque que la
+  // publication qui en dépend : décocher YouTube libère aussitôt le formulaire.
+  const youtubeVise = retenus.some(
+    (id) => accounts.find((c) => c.id === id)?.platform === "youtube",
+  );
+  const titrePropre = titre.trim();
+  const titreManquant = youtubeVise && titrePropre.length === 0;
+  const titreTropLong = titrePropre.length > TITRE_MAX;
+
   if (media.length === 0) {
     return (
       <p className="text-sm text-muted">
@@ -149,6 +163,37 @@ export function BroadcastForm({
           className="rounded-md border border-border bg-surface px-3 py-2 text-foreground shadow-soft transition-colors placeholder:text-muted-soft hover:border-border-strong focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring/60"
         />
       </label>
+
+      {youtubeVise ? (
+        <label className="flex flex-col gap-1.5 text-sm">
+          <span className="font-medium text-foreground">
+            Titre YouTube <span className="text-danger">*</span>
+          </span>
+          <input
+            type="text"
+            name="title"
+            value={titre}
+            onChange={(event) => setTitre(event.target.value)}
+            maxLength={TITRE_MAX}
+            placeholder="Le titre affiché sur la page de la vidéo."
+            className="rounded-md border border-border bg-surface px-3 py-2 text-foreground shadow-soft transition-colors placeholder:text-muted-soft hover:border-border-strong focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring/60"
+          />
+          <span className="flex items-center justify-between text-xs">
+            <span className={titreManquant ? "text-danger" : "text-muted"}>
+              {titreManquant
+                ? "YouTube exige un titre."
+                : "La légende ci-dessus devient la description de la vidéo."}
+            </span>
+            <span className={titreTropLong ? "text-danger" : "text-muted"}>
+              {titrePropre.length} / {TITRE_MAX}
+            </span>
+          </span>
+          <span className="text-xs text-muted">
+            La vidéo sera publiée en <strong>Privé</strong> sur YouTube : tant que notre projet
+            API n&apos;a pas été validé par Google, aucune autre visibilité n&apos;est possible.
+          </span>
+        </label>
+      ) : null}
 
       <fieldset className="flex flex-col gap-2 text-sm">
         <legend className="font-medium text-foreground">Réseaux</legend>
@@ -235,14 +280,18 @@ export function BroadcastForm({
       ) : null}
 
       <div className="flex flex-wrap items-center gap-3">
-        {retenus.length === 0 || tropDeCibles ? (
+        {retenus.length === 0 || tropDeCibles || titreManquant || titreTropLong ? (
           <button
             type="button"
             disabled
             title={
               retenus.length === 0
                 ? "Sélectionnez au moins un réseau"
-                : `Il ne reste que ${remainingThisMonth} publication(s) ce mois-ci`
+                : titreManquant
+                  ? "YouTube exige un titre"
+                  : titreTropLong
+                    ? `Le titre YouTube dépasse ${TITRE_MAX} caractères`
+                    : `Il ne reste que ${remainingThisMonth} publication(s) ce mois-ci`
             }
             className="inline-flex h-10 cursor-not-allowed items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground opacity-60"
           >
