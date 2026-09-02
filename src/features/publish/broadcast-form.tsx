@@ -44,13 +44,16 @@ export type BroadcastAccount = {
 const VISIBILITES: Record<YouTubePrivacyStatus, { titre: string; aide: string }> = {
   private: {
     titre: "Privée",
-    aide: "Vous seul, et les personnes à qui vous donnez le lien depuis YouTube.",
+    aide: "Visible uniquement selon les règles de confidentialité de YouTube : vous, et les personnes que vous y autorisez explicitement.",
   },
   unlisted: {
     titre: "Non répertoriée",
-    aide: "Accessible par lien, mais absente de la recherche et de votre chaîne.",
+    aide: "Accessible à toute personne possédant le lien. Absente de la recherche et de votre chaîne, mais partageable sans limite.",
   },
-  public: { titre: "Publique", aide: "Visible de tous et référencée par YouTube." },
+  public: {
+    titre: "Publique",
+    aide: "Visible immédiatement par tous, et référencée par YouTube.",
+  },
 };
 
 export type BroadcastMedia = {
@@ -249,13 +252,19 @@ export function BroadcastForm({
                 </label>
               ))}
             </div>
-            {visibilite === "private" ? null : (
-              <span className="text-xs text-warning">
-                Tant que notre projet d&apos;API n&apos;a pas été validé par Google, YouTube
-                ramène tout envoi à la visibilité <strong>privée</strong>. Votre choix est
-                enregistré et transmis, mais il ne prendra effet qu&apos;après cette validation.
-              </span>
-            )}
+            {/*
+              Cet emplacement portait un avertissement affirmant que YouTube
+              protégeait de toute façon la vidéo. C'était faux, et la mesure
+              qui l'a démenti est consignée dans l'en-tête de
+              `youtube-publisher.ts`. Annoncer un filet inexistant est pire que
+              de ne rien annoncer : on choisit « Publique » en se croyant
+              protégé. `tests/youtube-visibility-honesty.test.ts` veille à ce
+              que cette promesse ne revienne pas ici.
+            */}
+            <span className="text-xs text-muted">
+              POSTYNC transmet à YouTube <strong>exactement</strong> la visibilité que vous
+              choisissez ici. Elle s&apos;applique dès la mise en ligne.
+            </span>
           </div>
 
           <div className="flex flex-col gap-1.5 text-sm">

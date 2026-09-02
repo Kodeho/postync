@@ -16,9 +16,9 @@
  *     seconde session ;
  *
  *   - `privacyStatus` et `selfDeclaredMadeForKids` sont ceux que
- *     l'utilisateur a choisis, transmis sans réécriture. YouTube rabat
- *     lui-même la visibilité sur `private` tant que le projet n'est pas
- *     audité — c'est sa décision, pas la nôtre ;
+ *     l'utilisateur a choisis, transmis sans réécriture. Aucun filet ne les
+ *     rattrape en aval : une demande `public` produit une vidéo publique,
+ *     mesuré le 2026-09-02 sur le projet non audité `71307782821` ;
  *
  *   - l'identifiant de vidéo reste une CHAÎNE. Un identifiant YouTube contient
  *     lettres, tirets et soulignés : toute conversion le détruirait.
@@ -215,11 +215,14 @@ describe("ouverture de la session résumable", () => {
     "transmet la visibilité choisie sans la réécrire : %s",
     async (choix) => {
       // La Required Minimum Functionality impose que l'utilisateur puisse
-      // choisir entre les trois. La version précédente de ce test verrouillait
-      // `private` en s'appuyant sur une lecture ERRONÉE de la documentation :
-      // Google écrit « restricted to private viewing mode », pas « rejected ».
-      // C'est YouTube qui rabat la visibilité tant que le projet n'est pas
-      // audité — ce n'est pas à nous de supprimer le choix.
+      // choisir entre les trois, et ce test verrouille la TRANSMISSION FIDÈLE
+      // de ce choix.
+      //
+      // Deux commentaires successifs ont ici affirmé le contraire, et tous
+      // deux étaient faux : d'abord qu'une demande non privée « produit un
+      // refus », ensuite que YouTube ramènerait l'envoi en privé tant que le
+      // projet n'est pas audité. La mesure du 2026-09-02 a tranché : une
+      // demande `public` a produit une vidéo réellement publique.
       const fetchMock = mockFetchSequence(initiationOk());
       await youtubePublisher.createContainer({ ...base, privacyLevel: choix });
       const corps = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));

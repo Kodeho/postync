@@ -59,22 +59,32 @@ import {
  * publication.
  *
  * ─────────────────────────────────────────────────────────────────────────
- * CONFIDENTIALITÉ : `private`, imposé côté serveur
+ * CONFIDENTIALITÉ : la visibilité choisie est transmise telle quelle
  * ─────────────────────────────────────────────────────────────────────────
  *
- * Google, `videos.insert` : « Videos uploaded via the videos.insert endpoint
- * from unverified API projects created after July 28, 2020, are restricted to
- * private viewing mode. »
+ * `status.privacyStatus` reçoit EXACTEMENT ce que l'utilisateur a choisi.
+ * Ce module n'en réécrit aucune, n'en refuse aucune, n'en suppose aucune.
+ * La Required Minimum Functionality l'impose : « Users must be able to choose
+ * whether the uploaded video will be public, private, or unlisted. »
  *
- * RESTRICTED, PAS REJECTED. La version précédente de ce commentaire affirmait
- * qu'une demande non privée « produit un refus » : c'est faux, et cette erreur
- * a servi d'argument pour ne pas offrir le choix. Google ACCEPTE la requête et
- * rabat la visibilité sur `private` tant que le projet n'est pas audité.
+ * ─────────────────────────────────────────────────────────────────────────
+ * DEUX AFFIRMATIONS SUCCESSIVES ONT ÉTÉ ÉCRITES ICI, ET LES DEUX ÉTAIENT
+ * FAUSSES. Ne pas les réintroduire.
  *
- * Or la Required Minimum Functionality l'exige : « Users must be able to
- * choose whether the uploaded video will be public, private, or unlisted. »
- * Le choix est donc transmis tel quel, et c'est l'interface — pas ce module —
- * qui prévient que YouTube le ramènera à `private` d'ici l'audit.
+ *   1. « demander autre chose que `private` produit un refus » — faux : la
+ *      documentation dit « restricted to », pas « rejected ».
+ *   2. « Google rabat la visibilité sur `private` tant que le projet n'est
+ *      pas audité » — faux AUSSI, et c'est le plus coûteux des deux, parce
+ *      qu'il donnait l'illusion d'un garde-fou.
+ *
+ * MESURE, le 2026-09-02, projet `71307782821`, non audité pour les scopes :
+ * un envoi demandant `public` a produit une vidéo RÉELLEMENT PUBLIQUE
+ * (`F8tUy20bY9s`), accessible sans session — oEmbed HTTP 200 —, là où deux
+ * vidéos envoyées en `private` répondaient 403. La restriction annoncée par
+ * la documentation ne s'applique donc pas à ce projet.
+ *
+ * Conséquence pratique : rien n'empêche une publication publique. L'interface
+ * doit décrire honnêtement les trois choix, sans promettre de filet.
  */
 
 const UPLOAD_ENDPOINT = "https://www.googleapis.com/upload/youtube/v3/videos";
@@ -127,8 +137,11 @@ export const YOUTUBE_MIN_TRANSFER_BUDGET_MS = MIN_TRANSFER_WINDOW_MS + TRANSFER_
  *
  * Ce n'est PAS le comportement nominal : `publish.ts` et `schedule.ts`
  * refusent une publication YouTube sans visibilité explicite. Ce repli ne sert
- * qu'aux appels internes qui n'en fourniraient pas, et choisit alors la valeur
- * la moins exposante.
+ * qu'aux appels internes qui n'en fourniraient pas.
+ *
+ * `private` est choisi parce que c'est la valeur la moins exposante — et non
+ * parce que YouTube l'imposerait : la mesure ci-dessus montre qu'il ne le fait
+ * pas. Un oubli d'appelant ne doit pas publier au grand jour.
  */
 const PRIVACY_STATUS_FALLBACK: string = "private";
 
