@@ -56,6 +56,26 @@ function clientSecret(): string {
   return process.env.GOOGLE_CLIENT_SECRET ?? "";
 }
 
+/**
+ * Langue de l'écran de consentement Google (`hl`), FACULTATIVE.
+ *
+ * Non renseignée — le cas en Production — Google affiche le consentement dans
+ * la langue du compte de la personne. C'est le comportement souhaité : rien ne
+ * justifie d'imposer une langue à quelqu'un qui connecte sa propre chaîne.
+ *
+ * La validation Google exige en revanche une démonstration compréhensible en
+ * anglais. Plutôt que de traduire l'application, l'environnement de
+ * préproduction pose `GOOGLE_OAUTH_HL=en` le temps de l'enregistrement.
+ *
+ * Pas de préfixe `NEXT_PUBLIC_` : la valeur est lue côté serveur, à l'exécution
+ * — jamais inlinée dans le bundle du navigateur, et modifiable sans
+ * reconstruire (voir `node_modules/next/dist/docs/01-app/02-guides/
+ * environment-variables.md`, « Runtime Environment Variables »).
+ */
+function consentLanguage(): string {
+  return (process.env.GOOGLE_OAUTH_HL ?? "").trim();
+}
+
 export function isYouTubeConfigured(): boolean {
   return clientId().length > 0 && clientSecret().length > 0;
 }
@@ -116,6 +136,10 @@ export const youtubeProvider: SocialProvider = {
     url.searchParams.set("access_type", "offline");
     url.searchParams.set("prompt", "consent");
     url.searchParams.set("include_granted_scopes", "true");
+    // Ajout CONDITIONNEL : variable absente, l'URL est identique à celle
+    // d'avant cette option, au caractère près.
+    const hl = consentLanguage();
+    if (hl.length > 0) url.searchParams.set("hl", hl);
     return url.toString();
   },
 

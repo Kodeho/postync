@@ -14,14 +14,27 @@ import {
 
 const REDIRECT = "https://postync.test/api/oauth/youtube/callback";
 
+/**
+ * `GOOGLE_OAUTH_HL` est FACULTATIVE et peut être posée dans l'environnement de
+ * la personne qui lance les tests. On mémorise sa valeur d'origine pour la
+ * restaurer : sans cela, un `delete` la ferait disparaître pour les fichiers de
+ * test suivants, et le premier test ci-dessous passerait pour de mauvaises
+ * raisons sur une machine où elle est définie.
+ */
+let hlOrigine: string | undefined;
+
 beforeEach(() => {
   process.env.GOOGLE_CLIENT_ID = "test-client-id.apps.googleusercontent.com";
   process.env.GOOGLE_CLIENT_SECRET = "test-client-secret";
+  hlOrigine = process.env.GOOGLE_OAUTH_HL;
+  delete process.env.GOOGLE_OAUTH_HL;
 });
 
 afterEach(() => {
   delete process.env.GOOGLE_CLIENT_ID;
   delete process.env.GOOGLE_CLIENT_SECRET;
+  if (hlOrigine === undefined) delete process.env.GOOGLE_OAUTH_HL;
+  else process.env.GOOGLE_OAUTH_HL = hlOrigine;
   vi.restoreAllMocks();
 });
 
@@ -30,6 +43,56 @@ describe("configuration", () => {
     expect(isYouTubeConfigured()).toBe(true);
     delete process.env.GOOGLE_CLIENT_SECRET;
     expect(isYouTubeConfigured()).toBe(false);
+  });
+});
+
+/**
+ * Langue de l'écran de consentement — option `GOOGLE_OAUTH_HL`.
+ *
+ * CE QUE CES TESTS PROTÈGENT. L'option existe pour la préproduction, où Google
+ * réclame une démonstration en anglais. Elle ne doit RIEN changer ailleurs : un
+ * `hl` posé par défaut imposerait une langue à des personnes qui connectent
+ * leur propre chaîne YouTube. Le premier test verrouille donc l'absence du
+ * paramètre, le second sa présence exacte quand la variable est renseignée.
+ */
+describe("langue de l'écran de consentement (GOOGLE_OAUTH_HL)", () => {
+  const construire = () =>
+    new URL(
+      youtubeProvider.buildAuthUrl({ state: "state-opaque", codeChallenge: null, redirectUri: REDIRECT }),
+    );
+
+  it("variable absente : aucun paramètre hl, URL inchangée", () => {
+    expect(process.env.GOOGLE_OAUTH_HL).toBeUndefined();
+    const url = construire();
+    expect(url.searchParams.has("hl")).toBe(false);
+    expect(url.toString()).not.toContain("hl=");
+  });
+
+  it("variable vide ou blanche : traitée comme absente", () => {
+    process.env.GOOGLE_OAUTH_HL = "   ";
+    expect(construire().searchParams.has("hl")).toBe(false);
+  });
+
+  it("GOOGLE_OAUTH_HL=en : hl=en exactement, le reste intact", () => {
+    process.env.GOOGLE_OAUTH_HL = "en";
+    const url = construire();
+    expect(url.searchParams.get("hl")).toBe("en");
+    expect(url.toString()).toContain("hl=en");
+    // L'option n'ajoute QUE `hl` : les paramètres du flux restent les mêmes.
+    expect(url.searchParams.get("scope")).toBe(
+      "https://www.googleapis.com/auth/youtube.readonly " +
+        "https://www.googleapis.com/auth/youtube.upload",
+    );
+    expect(url.searchParams.get("access_type")).toBe("offline");
+    expect(url.searchParams.get("prompt")).toBe("consent");
+  });
+
+  it("l'URL avec hl ne diffère de l'URL sans hl que par ce paramètre", () => {
+    const sans = construire();
+    process.env.GOOGLE_OAUTH_HL = "en";
+    const avec = construire();
+    avec.searchParams.delete("hl");
+    expect(avec.toString()).toBe(sans.toString());
   });
 });
 
