@@ -15,9 +15,10 @@
  *     vidéos. Le test correspondant vérifie que reprendre n'ouvre jamais de
  *     seconde session ;
  *
- *   - `privacyStatus` est imposé à `private` côté serveur. Tant que le projet
- *     n'est pas audité, toute autre valeur donnerait soit un refus, soit une
- *     vidéo verrouillée sans explication ;
+ *   - `privacyStatus` et `selfDeclaredMadeForKids` sont ceux que
+ *     l'utilisateur a choisis, transmis sans réécriture. YouTube rabat
+ *     lui-même la visibilité sur `private` tant que le projet n'est pas
+ *     audité — c'est sa décision, pas la nôtre ;
  *
  *   - l'identifiant de vidéo reste une CHAÎNE. Un identifiant YouTube contient
  *     lettres, tirets et soulignés : toute conversion le détruirait.
@@ -210,15 +211,39 @@ describe("ouverture de la session résumable", () => {
     expect(corps.snippet.description).toBe("Description de la vidéo");
   });
 
-  it("privacyStatus est TOUJOURS private, quoi qu'on lui demande", async () => {
-    // Google : « All videos uploaded via the videos.insert endpoint from
-    // unverified API projects created after 28 July 2020 will be restricted to
-    // private viewing mode. » Demander autre chose ne rendrait pas la vidéo
-    // publique — cela produirait un refus ou un verrouillage silencieux.
+  it.each(["private", "unlisted", "public"] as const)(
+    "transmet la visibilité choisie sans la réécrire : %s",
+    async (choix) => {
+      // La Required Minimum Functionality impose que l'utilisateur puisse
+      // choisir entre les trois. La version précédente de ce test verrouillait
+      // `private` en s'appuyant sur une lecture ERRONÉE de la documentation :
+      // Google écrit « restricted to private viewing mode », pas « rejected ».
+      // C'est YouTube qui rabat la visibilité tant que le projet n'est pas
+      // audité — ce n'est pas à nous de supprimer le choix.
+      const fetchMock = mockFetchSequence(initiationOk());
+      await youtubePublisher.createContainer({ ...base, privacyLevel: choix });
+      const corps = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+      expect(corps.status.privacyStatus).toBe(choix);
+    },
+  );
+
+  it("sans visibilité transmise, retombe sur la valeur la moins exposante", async () => {
+    // Chemin non nominal : `publish.ts` refuse déjà une publication YouTube
+    // sans visibilité. Le repli existe pour qu'un appel interne oublieux ne
+    // publie jamais quelque chose de plus visible que voulu.
     const fetchMock = mockFetchSequence(initiationOk());
-    await youtubePublisher.createContainer({ ...base, privacyLevel: "public" });
+    await youtubePublisher.createContainer({ ...base, privacyLevel: null });
     const corps = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
     expect(corps.status.privacyStatus).toBe("private");
+  });
+
+  it.each([true, false])("transmet la déclaration Made for Kids : %s", async (declare) => {
+    // Developer Policies III.J. Cette valeur engage l'utilisateur : elle doit
+    // arriver chez Google exactement telle qu'il l'a déclarée.
+    const fetchMock = mockFetchSequence(initiationOk());
+    await youtubePublisher.createContainer({ ...base, madeForKids: declare });
+    const corps = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(corps.status.selfDeclaredMadeForKids).toBe(declare);
   });
 
   it("taille inconnue : elle est MESURÉE plutôt que d'abandonner", async () => {

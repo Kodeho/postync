@@ -62,15 +62,19 @@ import {
  * CONFIDENTIALITÉ : `private`, imposé côté serveur
  * ─────────────────────────────────────────────────────────────────────────
  *
- * Google, historique des révisions : « All videos uploaded via the
- * videos.insert endpoint from unverified API projects created after 28 July
- * 2020 will be restricted to private viewing mode. »
+ * Google, `videos.insert` : « Videos uploaded via the videos.insert endpoint
+ * from unverified API projects created after July 28, 2020, are restricted to
+ * private viewing mode. »
  *
- * Tant que le projet n'a pas passé l'audit, demander autre chose que `private`
- * ne rend pas la vidéo publique : cela produit un refus, ou une vidéo
- * verrouillée en privé sans que l'utilisateur comprenne pourquoi. On impose
- * donc `private` ici, sans exposer le choix. Le retirer devra SUIVRE l'audit,
- * jamais l'anticiper.
+ * RESTRICTED, PAS REJECTED. La version précédente de ce commentaire affirmait
+ * qu'une demande non privée « produit un refus » : c'est faux, et cette erreur
+ * a servi d'argument pour ne pas offrir le choix. Google ACCEPTE la requête et
+ * rabat la visibilité sur `private` tant que le projet n'est pas audité.
+ *
+ * Or la Required Minimum Functionality l'exige : « Users must be able to
+ * choose whether the uploaded video will be public, private, or unlisted. »
+ * Le choix est donc transmis tel quel, et c'est l'interface — pas ce module —
+ * qui prévient que YouTube le ramènera à `private` d'ici l'audit.
  */
 
 const UPLOAD_ENDPOINT = "https://www.googleapis.com/upload/youtube/v3/videos";
@@ -118,8 +122,15 @@ const MIN_TRANSFER_WINDOW_MS = 3_000;
  */
 export const YOUTUBE_MIN_TRANSFER_BUDGET_MS = MIN_TRANSFER_WINDOW_MS + TRANSFER_TAIL_MS;
 
-/** Visibilité imposée tant que le projet n'est pas audité (voir en-tête). */
-const PRIVACY_STATUS = "private";
+/**
+ * Repli quand aucune visibilité n'est transmise.
+ *
+ * Ce n'est PAS le comportement nominal : `publish.ts` et `schedule.ts`
+ * refusent une publication YouTube sans visibilité explicite. Ce repli ne sert
+ * qu'aux appels internes qui n'en fourniraient pas, et choisit alors la valeur
+ * la moins exposante.
+ */
+const PRIVACY_STATUS_FALLBACK: string = "private";
 
 type GoogleErrorPayload = {
   error?: {
@@ -331,8 +342,13 @@ export const youtubePublisher: SocialPublisher = {
       },
       body: JSON.stringify({
         snippet: { title: titre, description: input.caption ?? "" },
-        // Imposé côté serveur — voir l'en-tête du module.
-        status: { privacyStatus: PRIVACY_STATUS, selfDeclaredMadeForKids: false },
+        // Les DEUX valeurs viennent de l'utilisateur (voir l'en-tête).
+        // `selfDeclaredMadeForKids` engage sa responsabilité : on ne la
+        // fabrique pas, on transmet ce qu'il a déclaré.
+        status: {
+          privacyStatus: input.privacyLevel ?? PRIVACY_STATUS_FALLBACK,
+          selfDeclaredMadeForKids: input.madeForKids ?? false,
+        },
       }),
     });
     if (!initiation.ok) {

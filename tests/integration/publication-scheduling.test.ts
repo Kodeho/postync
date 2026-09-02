@@ -29,6 +29,8 @@ import {
 } from "@/server/social/schedule";
 import type { SocialProvider } from "@/server/social/providers/types";
 import { countPublicationsThisMonth } from "@/server/social/queries";
+import { YOUTUBE_UPLOAD_SCOPE } from "@/server/social/providers/youtube-publisher";
+import { YOUTUBE_READONLY_SCOPE } from "@/server/social/providers/youtube";
 import { vaultStore } from "@/server/social/vault";
 
 function loadEnvLocal(): Record<string, string> {
@@ -58,6 +60,7 @@ let ownerClient: SupabaseClient;
 let ownerId = "";
 let workspaceId = "";
 let accountId = "";
+let youtubeAccountId = "";
 
 /** Provider minimal : la planification n'appelle aucune plateforme. */
 function fakeProvider(): SocialProvider {
@@ -140,6 +143,26 @@ describe.skipIf(!CONFIGURED)("C10.1 — planification", () => {
       .single();
     if (accError) throw accError;
     accountId = (account as { id: string }).id;
+
+    // Compte YouTube dédié aux métadonnées d'upload. Le compte Facebook
+    // ci-dessus ne peut pas servir : les déclarations n'existent que chez
+    // YouTube, et c'est précisément la platform qui les déclenche.
+    const ytTokenId = await vaultStore(admin, "ya29.c10-youtube", "c10/youtube-access");
+    const { data: ytAccount, error: ytError } = await admin
+      .from("social_accounts")
+      .insert({
+        workspace_id: workspaceId,
+        platform: "youtube",
+        provider_account_id: "UC86PZJH-k5RXPFzk_-7M5LQ",
+        display_name: "Chaîne C10",
+        access_token_id: ytTokenId,
+        scopes: [YOUTUBE_READONLY_SCOPE, YOUTUBE_UPLOAD_SCOPE],
+        connected_by: ownerId,
+      })
+      .select("id")
+      .single();
+    if (ytError) throw ytError;
+    youtubeAccountId = (ytAccount as { id: string }).id;
   }, 90_000);
 
   afterAll(async () => {
@@ -209,6 +232,120 @@ describe.skipIf(!CONFIGURED)("C10.1 — planification", () => {
     expect(row!.attempts).toBe(0);
     // La colonne générée suit l'échéance, pas la création.
     expect(new Date(row!.effective_at as string).toISOString()).toBe(echeance);
+  }, 60_000);
+
+  // -------------------------------------------------------------------------
+  // Métadonnées d'upload YouTube — persistance à la SAISIE
+  // -------------------------------------------------------------------------
+  //
+  // Ces cas ne peuvent pas être unitaires : ce qu'ils prouvent, c'est que les
+  // quatre colonnes traversent réellement PostgREST, la liste blanche de
+  // colonnes et les contraintes. Un mock rendrait ce qu'on lui a soufflé.
+
+  const baseYouTube = () => ({
+    workspaceId,
+    socialAccountId: youtubeAccountId,
+    requestedBy: ownerId,
+    mediaKind: "reel" as const,
+    mediaUrl: "https://cdn.example.com/verification.mp4",
+    caption: "Description de la vidéo",
+    scheduledAt: DANS_UNE_HEURE(),
+  });
+
+  it("refuse de programmer sur YouTube sans les déclarations exigées", async () => {
+    await purge();
+    const complet = {
+      title: "Titre",
+      privacyStatus: "private" as const,
+      madeForKids: false,
+      guidelinesAcknowledged: true,
+    };
+
+    // Chaque déclaration manquante est refusée SÉPARÉMENT : un message unique
+    // n'apprendrait pas à l'utilisateur ce qu'il doit corriger.
+    expect(
+      await schedulePublication(deps(), { ...baseYouTube(), ...complet, title: null }),
+    ).toEqual({ ok: false, code: "youtube_title_required" });
+
+    expect(
+      await schedulePublication(deps(), { ...baseYouTube(), ...complet, privacyStatus: null }),
+    ).toEqual({ ok: false, code: "youtube_privacy_invalid" });
+
+    expect(
+      await schedulePublication(deps(), { ...baseYouTube(), ...complet, madeForKids: null }),
+    ).toEqual({ ok: false, code: "youtube_made_for_kids_required" });
+
+    expect(
+      await schedulePublication(deps(), {
+        ...baseYouTube(),
+        ...complet,
+        guidelinesAcknowledged: false,
+      }),
+    ).toEqual({ ok: false, code: "youtube_guidelines_required" });
+
+    // Aucun de ces refus n'a laissé de ligne derrière lui.
+    const { count } = await admin
+      .from("social_publications")
+      .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId);
+    expect(count).toBe(0);
+  }, 60_000);
+
+  it("enregistre les quatre déclarations, et le TITRE survit à la programmation", async () => {
+    // Le titre n'était pas conservé : une publication YouTube programmée
+    // échouait à l'exécution sur `title_required`, sans que rien ne l'annonce
+    // à la saisie. C'est le défaut principal que cette PR corrige.
+    await purge();
+    const result = await schedulePublication(deps(), {
+      ...baseYouTube(),
+      title: "  POSTYNC — upload verification  ",
+      privacyStatus: "unlisted",
+      madeForKids: true,
+      guidelinesAcknowledged: true,
+    });
+    expect(result.ok).toBe(true);
+
+    const { data: row } = await admin
+      .from("social_publications")
+      .select("platform, title, privacy_status, made_for_kids, guidelines_acknowledged_at")
+      .eq("workspace_id", workspaceId)
+      .single();
+
+    expect(row!.platform).toBe("youtube");
+    // Rogné à la saisie, pas à l'exécution.
+    expect(row!.title).toBe("POSTYNC — upload verification");
+    expect(row!.privacy_status).toBe("unlisted");
+    expect(row!.made_for_kids).toBe(true);
+    expect(typeof row!.guidelines_acknowledged_at).toBe("string");
+  }, 60_000);
+
+  it("une publication non-YouTube laisse ces colonnes nulles", async () => {
+    // La contrainte de forme n'est volontairement pas encore en base : c'est
+    // le code qui garantit qu'aucun défaut n'est inventé pour les autres
+    // réseaux. Ce test verrouille cette promesse.
+    await purge();
+    const result = await schedulePublication(deps(), {
+      workspaceId,
+      socialAccountId: accountId,
+      requestedBy: ownerId,
+      mediaKind: "reel",
+      mediaUrl: "https://cdn.example.com/facebook.mp4",
+      caption: "Sans notion de titre",
+      scheduledAt: DANS_UNE_HEURE(),
+    });
+    expect(result.ok).toBe(true);
+
+    const { data: row } = await admin
+      .from("social_publications")
+      .select("platform, title, privacy_status, made_for_kids, guidelines_acknowledged_at")
+      .eq("workspace_id", workspaceId)
+      .single();
+
+    expect(row!.platform).toBe("facebook");
+    expect(row!.title).toBeNull();
+    expect(row!.privacy_status).toBeNull();
+    expect(row!.made_for_kids).toBeNull();
+    expect(row!.guidelines_acknowledged_at).toBeNull();
   }, 60_000);
 
   it("refuse un compte d'un autre workspace, inactif, ou sans le scope requis", async () => {

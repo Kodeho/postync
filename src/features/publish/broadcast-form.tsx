@@ -5,6 +5,11 @@ import { useActionState, useState } from "react";
 import { FormAlert } from "@/components/ui/form-alert";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { instantToWallClock, wallClockToInstant } from "@/lib/time-zone";
+import {
+  YOUTUBE_PRIVACY_STATUSES,
+  YOUTUBE_TITLE_MAX_LENGTH,
+  type YouTubePrivacyStatus,
+} from "@/lib/youtube-metadata";
 import { broadcastAction } from "@/server/social/actions";
 import type { BroadcastTargetOutcome } from "@/server/social/broadcast";
 import { IDLE_BROADCAST_ACTION } from "@/server/social/broadcast-state";
@@ -31,8 +36,22 @@ export type BroadcastAccount = {
   unavailableReason: string | null;
 };
 
-/** `snippet.title` chez YouTube — limite officielle de l'API. */
-const TITRE_MAX = 100;
+/**
+ * Libellés des trois visibilités que la Required Minimum Functionality impose
+ * d'offrir. Les VALEURS viennent du module partagé avec le serveur : c'est lui
+ * qui les fait foi, l'interface n'en propose pas d'autres.
+ */
+const VISIBILITES: Record<YouTubePrivacyStatus, { titre: string; aide: string }> = {
+  private: {
+    titre: "Privée",
+    aide: "Vous seul, et les personnes à qui vous donnez le lien depuis YouTube.",
+  },
+  unlisted: {
+    titre: "Non répertoriée",
+    aide: "Accessible par lien, mais absente de la recherche et de votre chaîne.",
+  },
+  public: { titre: "Publique", aide: "Visible de tous et référencée par YouTube." },
+};
 
 export type BroadcastMedia = {
   id: string;
@@ -61,6 +80,13 @@ export function BroadcastForm({
   const [assetId, setAssetId] = useState<string>(media[0]?.id ?? "");
   const [selected, setSelected] = useState<string[]>([]);
   const [titre, setTitre] = useState("");
+  // `private` est PRÉSÉLECTIONNÉ, pas imposé : la RMF exige que le choix
+  // existe, un défaut commode ne la contredit pas.
+  const [visibilite, setVisibilite] = useState<YouTubePrivacyStatus>("private");
+  // Aucune valeur initiale : la déclaration « Made for Kids » engage
+  // l'utilisateur au titre de la COPPA. Un défaut la ferait à sa place.
+  const [pourEnfants, setPourEnfants] = useState<"yes" | "no" | null>(null);
+  const [guidelinesOk, setGuidelinesOk] = useState(false);
   const [quand, setQuand] = useState<"maintenant" | "plus-tard">("maintenant");
   const [echeanceLocale, setEcheanceLocale] = useState("");
   const [bornes, setBornes] = useState<{ min: string; max: string } | null>(null);
@@ -118,7 +144,13 @@ export function BroadcastForm({
   );
   const titrePropre = titre.trim();
   const titreManquant = youtubeVise && titrePropre.length === 0;
-  const titreTropLong = titrePropre.length > TITRE_MAX;
+  const titreTropLong = titrePropre.length > YOUTUBE_TITLE_MAX_LENGTH;
+  // Les deux déclarations sont exigées par YouTube. Elles bloquent le bouton
+  // au même titre que le titre — et, comme lui, seulement quand YouTube est
+  // visé : décocher le réseau libère aussitôt le formulaire.
+  const enfantsManquant = youtubeVise && pourEnfants === null;
+  const guidelinesManquant = youtubeVise && !guidelinesOk;
+  const youtubeIncomplet = titreManquant || titreTropLong || enfantsManquant || guidelinesManquant;
 
   if (media.length === 0) {
     return (
@@ -174,7 +206,7 @@ export function BroadcastForm({
             name="title"
             value={titre}
             onChange={(event) => setTitre(event.target.value)}
-            maxLength={TITRE_MAX}
+            maxLength={YOUTUBE_TITLE_MAX_LENGTH}
             placeholder="Le titre affiché sur la page de la vidéo."
             className="rounded-md border border-border bg-surface px-3 py-2 text-foreground shadow-soft transition-colors placeholder:text-muted-soft hover:border-border-strong focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring/60"
           />
@@ -185,14 +217,117 @@ export function BroadcastForm({
                 : "La légende ci-dessus devient la description de la vidéo."}
             </span>
             <span className={titreTropLong ? "text-danger" : "text-muted"}>
-              {titrePropre.length} / {TITRE_MAX}
+              {titrePropre.length} / {YOUTUBE_TITLE_MAX_LENGTH}
             </span>
           </span>
-          <span className="text-xs text-muted">
-            La vidéo sera publiée en <strong>Privé</strong> sur YouTube : tant que notre projet
-            API n&apos;a pas été validé par Google, aucune autre visibilité n&apos;est possible.
-          </span>
         </label>
+      ) : null}
+
+      {youtubeVise ? (
+        <fieldset className="flex flex-col gap-3 rounded-md border border-border p-3">
+          <legend className="px-1 text-sm font-medium text-foreground">Options YouTube</legend>
+
+          <div className="flex flex-col gap-1.5 text-sm">
+            <span className="font-medium text-foreground">
+              Visibilité <span className="text-danger">*</span>
+            </span>
+            <div className="flex flex-col gap-1.5">
+              {YOUTUBE_PRIVACY_STATUSES.map((valeur) => (
+                <label key={valeur} className="flex items-start gap-2">
+                  <input
+                    type="radio"
+                    name="privacyStatus"
+                    value={valeur}
+                    checked={visibilite === valeur}
+                    onChange={() => setVisibilite(valeur)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="text-foreground">{VISIBILITES[valeur].titre}</span>
+                    <span className="block text-xs text-muted">{VISIBILITES[valeur].aide}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            {visibilite === "private" ? null : (
+              <span className="text-xs text-warning">
+                Tant que notre projet d&apos;API n&apos;a pas été validé par Google, YouTube
+                ramène tout envoi à la visibilité <strong>privée</strong>. Votre choix est
+                enregistré et transmis, mais il ne prendra effet qu&apos;après cette validation.
+              </span>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-1.5 text-sm">
+            <span className="font-medium text-foreground">
+              Contenu destiné aux enfants <span className="text-danger">*</span>
+            </span>
+            <div className="flex gap-4">
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="madeForKids"
+                  value="yes"
+                  checked={pourEnfants === "yes"}
+                  onChange={() => setPourEnfants("yes")}
+                />
+                Oui
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="madeForKids"
+                  value="no"
+                  checked={pourEnfants === "no"}
+                  onChange={() => setPourEnfants("no")}
+                />
+                Non
+              </label>
+            </div>
+            <span className={pourEnfants === null ? "text-xs text-danger" : "text-xs text-muted"}>
+              {pourEnfants === null
+                ? "YouTube exige cette déclaration pour chaque vidéo."
+                : "Cette déclaration vous engage : elle est transmise à YouTube telle quelle."}
+            </span>
+            <a
+              href="https://support.google.com/youtube/answer/9528076"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-primary underline-offset-4 hover:underline"
+            >
+              Comment YouTube définit un contenu destiné aux enfants
+            </a>
+          </div>
+
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              name="guidelinesAcknowledged"
+              checked={guidelinesOk}
+              onChange={(event) => setGuidelinesOk(event.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              <span className="text-foreground">
+                Je certifie que ce contenu respecte les{" "}
+                <a
+                  href="https://www.youtube.com/howyoutubeworks/policies/community-guidelines/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary underline-offset-4 hover:underline"
+                >
+                  YouTube Community Guidelines
+                </a>
+                . <span className="text-danger">*</span>
+              </span>
+              {guidelinesOk ? null : (
+                <span className="block text-xs text-danger">
+                  Cette certification est obligatoire pour publier sur YouTube.
+                </span>
+              )}
+            </span>
+          </label>
+        </fieldset>
       ) : null}
 
       <fieldset className="flex flex-col gap-2 text-sm">
@@ -280,7 +415,7 @@ export function BroadcastForm({
       ) : null}
 
       <div className="flex flex-wrap items-center gap-3">
-        {retenus.length === 0 || tropDeCibles || titreManquant || titreTropLong ? (
+        {retenus.length === 0 || tropDeCibles || youtubeIncomplet ? (
           <button
             type="button"
             disabled
@@ -290,8 +425,12 @@ export function BroadcastForm({
                 : titreManquant
                   ? "YouTube exige un titre"
                   : titreTropLong
-                    ? `Le titre YouTube dépasse ${TITRE_MAX} caractères`
-                    : `Il ne reste que ${remainingThisMonth} publication(s) ce mois-ci`
+                    ? `Le titre YouTube dépasse ${YOUTUBE_TITLE_MAX_LENGTH} caractères`
+                    : enfantsManquant
+                      ? "Indiquez si la vidéo est destinée aux enfants"
+                      : guidelinesManquant
+                        ? "Certifiez le respect des Community Guidelines"
+                        : `Il ne reste que ${remainingThisMonth} publication(s) ce mois-ci`
             }
             className="inline-flex h-10 cursor-not-allowed items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground opacity-60"
           >
