@@ -33,15 +33,35 @@ import { YOUTUBE_UPLOAD_SCOPE } from "@/server/social/providers/youtube-publishe
 import { YOUTUBE_READONLY_SCOPE } from "@/server/social/providers/youtube";
 import { vaultStore } from "@/server/social/vault";
 
+/**
+ * Variables d'exécution, `process.env` D'ABORD.
+ *
+ * Ce fichier ne lisait que `.env.local`. C'était impossible à viser : sur une
+ * machine dont le `.env.local` pointe la Production, ce test écrivait EN
+ * PRODUCTION, et aucune variable d'environnement ne pouvait l'en empêcher —
+ * `npm test` suffisait à le déclencher.
+ *
+ * L'ordre est donc inversé : ce qui est injecté en mémoire l'emporte, et
+ * `.env.local` ne sert plus que de commodité locale.
+ */
 function loadEnvLocal(): Record<string, string> {
   const vars: Record<string, string> = {};
   const file = resolve(process.cwd(), ".env.local");
-  if (!existsSync(file)) return vars;
-  for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
-    if (!line || line.startsWith("#")) continue;
-    const i = line.indexOf("=");
-    if (i === -1) continue;
-    vars[line.slice(0, i).trim()] = line.slice(i + 1).trim();
+  if (existsSync(file)) {
+    for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
+      if (!line || line.startsWith("#")) continue;
+      const i = line.indexOf("=");
+      if (i === -1) continue;
+      vars[line.slice(0, i).trim()] = line.slice(i + 1).trim();
+    }
+  }
+  for (const cle of [
+    "NEXT_PUBLIC_SUPABASE_URL",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    "SUPABASE_SERVICE_ROLE_KEY",
+  ]) {
+    const valeur = process.env[cle];
+    if (valeur && valeur.length > 0) vars[cle] = valeur;
   }
   return vars;
 }
@@ -52,7 +72,12 @@ const CONFIGURED = Boolean(
 );
 const NO_SESSION = { auth: { persistSession: false, autoRefreshToken: false } };
 const PASSWORD = `C10-${randomUUID()}`;
-const EMAIL = "postync-c10-owner@example.com";
+/**
+ * Unique À CHAQUE EXÉCUTION. `cleanup()` supprime par adresse : une adresse
+ * fixe est un identifiant partagé, et deux exécutions se marcheraient dessus.
+ * Unique, cette exécution ne peut supprimer que ce qu'elle a elle-même créé.
+ */
+const EMAIL = `postync-c10-owner+${randomUUID()}@example.com`;
 
 let admin: SupabaseClient;
 /** Client SOUS SESSION : RLS et liste blanche de colonnes réellement en jeu. */
@@ -78,10 +103,31 @@ function fakeProvider(): SocialProvider {
   } as unknown as SocialProvider;
 }
 
+/**
+ * Provider YouTube minimal. Il ne porte AUCUNE méthode d'appel distant :
+ * `schedulePublication` n'a besoin que des scopes requis et des types de
+ * média acceptés. Rien dans ce fichier ne peut donc joindre Google.
+ */
+function fakeYouTubeProvider(): SocialProvider {
+  return {
+    platform: "youtube",
+    usesPkce: false,
+    buildAuthUrl: () => "https://example.invalid",
+    exchangeCode: async () => {
+      throw new Error("non utilisé");
+    },
+    publisher: {
+      requiredScopes: [YOUTUBE_UPLOAD_SCOPE],
+      supportedMediaKinds: ["reel"] as const,
+    },
+  } as unknown as SocialProvider;
+}
+
 function deps(quota = 100): PublishDeps {
   return {
     db: admin,
-    getProvider: (p) => (p === "facebook" ? fakeProvider() : null),
+    getProvider: (p) =>
+      p === "facebook" ? fakeProvider() : p === "youtube" ? fakeYouTubeProvider() : null,
     getMonthlyQuota: async () => quota,
     sleep: async () => undefined,
   };
