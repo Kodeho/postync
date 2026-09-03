@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 
 import { getProvider } from "@/server/social/providers";
 import { runYouTubeRetention } from "@/server/social/retention";
+import { codeErreurControle, consignerPasse } from "@/server/social/retention-journal";
 import { createServiceClient } from "@/server/supabase/service-client";
 import type { SocialPlatform } from "@/types/platform";
 
@@ -58,6 +59,7 @@ export async function POST(request: Request) {
     return new NextResponse(null, { status: 401 });
   }
 
+  const debut = Date.now();
   try {
     const rapport = await runYouTubeRetention({
       db,
@@ -71,6 +73,17 @@ export async function POST(request: Request) {
         `purges=${rapport.purges} reessais=${rapport.reessais} ` +
         `publications=${rapport.publicationsPurgees}`,
     );
+    await consignerPasse(db, {
+      examined: rapport.examines,
+      refreshed: rapport.rafraichis,
+      purged: rapport.purges,
+      retried: rapport.reessais,
+      publications_purged: rapport.publicationsPurgees,
+      batches: rapport.lots,
+      saturated: rapport.sature,
+      duration_ms: Date.now() - debut,
+      error_code: null,
+    });
     return NextResponse.json({
       examines: rapport.examines,
       rafraichis: rapport.rafraichis,
@@ -79,9 +92,25 @@ export async function POST(request: Request) {
       publicationsPurgees: rapport.publicationsPurgees,
     });
   } catch (err) {
-    console.error(
-      `[cron:retention] ${err instanceof Error ? err.message.slice(0, 120) : "erreur"}`,
-    );
+    // Code CONTRÔLÉ partout — dans le log comme en base. Tronquer le message
+    // ne garantirait pas l'absence d'une donnée sensible ; un code choisi
+    // dans une liste fermée, si.
+    const code = codeErreurControle(err);
+    console.error(`[cron:retention] ${code}`);
+    // Compteurs à NULL, pas à zéro : l'invocation a échoué en vol, son rapport
+    // est perdu, et des opérations partielles ont pu avoir lieu. `null` dit
+    // « inconnu » ; `0` dirait « mesuré : rien », ce qui serait faux.
+    await consignerPasse(db, {
+      examined: null,
+      refreshed: null,
+      purged: null,
+      retried: null,
+      publications_purged: null,
+      batches: null,
+      saturated: null,
+      duration_ms: Date.now() - debut,
+      error_code: code,
+    });
     return new NextResponse(null, { status: 500 });
   }
 }
