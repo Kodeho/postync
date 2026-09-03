@@ -85,11 +85,30 @@ describe("décision de rétention", () => {
     const encore = decideRetention(compte({ identity_refreshed_at: ilYA(29) }), MAINTENANT);
     expect(encore).toEqual({ action: "refresh" });
 
+    // AU PLAFOND, ON RELIT ENCORE. « Delete OR refresh » : une identité de
+    // 31 jours qui se relit sans problème n'a aucune raison d'être détruite,
+    // et purger sur le seul âge transformerait un retard de NOTRE passe en
+    // perte de données.
     const plafond = decideRetention(
       compte({ identity_refreshed_at: new Date(MAINTENANT - IDENTITY_MAX_AGE_MS).toISOString() }),
       MAINTENANT,
     );
-    expect(plafond).toEqual({ action: "purge", reason: "stale" });
+    expect(plafond).toEqual({ action: "refresh" });
+
+    const bienAuDela = decideRetention(compte({ identity_refreshed_at: ilYA(120) }), MAINTENANT);
+    expect(bienAuDela).toEqual({ action: "refresh" });
+  });
+
+  it("ne purge JAMAIS pour ancienneté sans avoir essayé", () => {
+    // L'invariant qui protège d'une purge auto-infligée : si la passe prend
+    // du retard — saturation, cron arrêté —, les comptes vieillissent sans
+    // qu'aucun n'ait été sollicité. Les détruire alors serait notre faute,
+    // pas une exigence réglementaire.
+    for (const jours of [30, 45, 90, 365]) {
+      expect(
+        decideRetention(compte({ identity_refreshed_at: ilYA(jours) }), MAINTENANT).action,
+      ).toBe("refresh");
+    }
   });
 
   it("purge immédiatement un compte déjà constaté révoqué", () => {
@@ -108,7 +127,7 @@ describe("décision de rétention", () => {
     ).toEqual({ action: "keep" });
     expect(
       decideRetention(compte({ identity_refreshed_at: null, connected_at: ilYA(31) }), MAINTENANT),
-    ).toEqual({ action: "purge", reason: "stale" });
+    ).toEqual({ action: "refresh" });
   });
 
   it("relit plutôt que de purger quand la date est illisible", () => {

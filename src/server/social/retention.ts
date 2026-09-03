@@ -125,9 +125,16 @@ export function decideRetention(compte: RetentionAccount, maintenant: number): R
   }
 
   const age = maintenant - luLe;
-  if (age >= IDENTITY_MAX_AGE_MS) {
-    return { action: "purge", reason: "stale" };
-  }
+  // AU-DELÀ DU PLAFOND, ON ESSAIE ENCORE — on ne purge pas d'emblée.
+  //
+  // « Delete OR refresh » : le refresh satisfait l'obligation, et une
+  // identité de 31 jours qui se relit sans problème n'a aucune raison d'être
+  // détruite. Purger sur le seul critère de l'âge ferait pire : un retard de
+  // NOTRE passe — saturation, panne du cron — provoquerait une perte de
+  // données que rien dans la réglementation n'exige.
+  //
+  // La purge pour ancienneté n'existe donc que dans `decideAfterFailure` :
+  // il faut avoir essayé ET échoué.
   if (age >= IDENTITY_REFRESH_AFTER_MS) {
     return { action: "refresh" };
   }
@@ -174,8 +181,12 @@ export type RetentionDeps = {
   db: SupabaseClient;
   getProvider: (platform: string) => SocialProvider | null;
   now?: () => number;
-  /** Taille du lot : une passe courte, répétée, plutôt qu'une interminable. */
+  /** Taille d'un lot. La passe en enchaîne plusieurs. */
   batchSize?: number;
+  /** Budget d'une invocation, en millisecondes. */
+  budgetMs?: number;
+  /** Horloge de mesure du budget, injectable pour les tests. */
+  monotonic?: () => number;
 };
 
 export type RetentionOutcome = {
@@ -192,6 +203,15 @@ export type RetentionReport = {
   reessais: number;
   /** Publications dont les identifiants de plateforme ont été effacés. */
   publicationsPurgees: number;
+  /** Lots réellement traités pendant cette invocation. */
+  lots: number;
+  /**
+   * Vrai si le budget a été épuisé alors qu'il restait du travail.
+   *
+   * C'est le signal qui compte : sans lui, une saturation serait invisible
+   * et les comptes non traités vieilliraient en silence.
+   */
+  sature: boolean;
   resultats: RetentionOutcome[];
 };
 
@@ -232,8 +252,19 @@ export async function purgeStalePublications(
       purged_at: new Date(maintenant).toISOString(),
     })
     .eq("platform", "youtube")
+    // STATUTS TERMINAUX SEULEMENT. `scheduled` et `pending` sont en vol, et
+    // `container_id` y porte l'URI de la session d'envoi résumable :
+    // l'effacer ferait rouvrir une session au prochain réveil du
+    // planificateur, donc CRÉER UNE SECONDE VIDÉO. Le tableau des statuts ne
+    // comporte pas de `processing` — c'est `pending` qui joue ce rôle.
+    .in("status", TERMINAUX)
     .is("purged_at", null)
-    .lt("created_at", limite)
+    // `updated_at`, pas `created_at`. Une publication peut être créée
+    // longtemps avant son envoi : le formulaire accepte une échéance jusqu'à
+    // 364 jours. Compter depuis la création purgerait une publication encore
+    // à venir. `updated_at` marque le moment où la ligne a cessé de bouger,
+    // c'est-à-dire depuis quand nous détenons réellement ces données.
+    .lt("updated_at", limite)
     .select("id");
 
   if (error) {
@@ -246,17 +277,83 @@ export async function purgeStalePublications(
 const LOT_DEFAUT = 25;
 
 /**
+ * Statuts au-delà desquels une publication ne bouge plus.
+ *
+ * `scheduled` et `pending` en sont volontairement absents : voir
+ * `purgeStalePublications`.
+ */
+export const TERMINAUX = ["published", "failed", "canceled"] as const;
+
+/**
+ * Budget d'une invocation. La route déclare `maxDuration = 120` s ; on rend
+ * la main avant, pour que le rapport soit émis plutôt que tronqué par le
+ * temps mort.
+ */
+export const PASS_BUDGET_MS = 90_000;
+
+/** Garde-fou de boucle : au pire, on s'arrête et la passe suivante reprend. */
+export const MAX_LOTS = 20;
+
+/**
  * Une passe de rétention. Idempotente : rien ne se produit pour un compte
  * dont l'identité est fraîche, et deux passes rapprochées ne font pas deux
  * fois le travail.
  */
 export async function runYouTubeRetention(deps: RetentionDeps): Promise<RetentionReport> {
   const now = deps.now ?? Date.now;
+  const horloge = deps.monotonic ?? Date.now;
+  const debut = horloge();
+  const budget = deps.budgetMs ?? PASS_BUDGET_MS;
+  const taille = deps.batchSize ?? LOT_DEFAUT;
   const maintenant = now();
   const rapport: RetentionReport = {
-    examines: 0, rafraichis: 0, purges: 0, reessais: 0, publicationsPurgees: 0, resultats: [],
+    examines: 0, rafraichis: 0, purges: 0, reessais: 0, publicationsPurgees: 0,
+    lots: 0, sature: false, resultats: [],
   };
 
+  // PLUSIEURS LOTS PAR INVOCATION.
+  //
+  // Un seul lot de 25 par jour plafonnait le service à 175 comptes : au-delà,
+  // la file s'allongeait, les identités vieillissaient, et la passe finissait
+  // par détruire des comptes que rien n'obligeait à détruire. La boucle
+  // enchaîne donc les lots tant qu'il reste du travail et du temps.
+  //
+  // `sature` dit franchement quand le budget s'épuise avant la file. C'est
+  // préférable à une file qui s'allonge sans que personne ne le voie.
+  for (let lot = 0; lot < MAX_LOTS; lot += 1) {
+    if (horloge() - debut >= budget) {
+      rapport.sature = true;
+      break;
+    }
+    const traites = await traiterUnLot(deps, rapport, maintenant, now, taille);
+    if (traites === 0) break;
+    rapport.lots += 1;
+    // Un lot plein signifie qu'il reste probablement des lignes derrière.
+    if (traites < taille) break;
+    if (lot === MAX_LOTS - 1) rapport.sature = true;
+  }
+
+  // Indépendant des comptes : une publication vieillit même si son compte est
+  // toujours connecté et sa carte fraîchement relue.
+  rapport.publicationsPurgees = await purgeStalePublications(deps, maintenant);
+
+  console.info(
+    `[retention] lots=${rapport.lots} examines=${rapport.examines} ` +
+      `rafraichis=${rapport.rafraichis} purges=${rapport.purges} ` +
+      `reessais=${rapport.reessais} publications=${rapport.publicationsPurgees} ` +
+      `sature=${rapport.sature}`,
+  );
+  return rapport;
+}
+
+/** Un lot. Rend le nombre de lignes lues — 0 signifie « plus rien à faire ». */
+async function traiterUnLot(
+  deps: RetentionDeps,
+  rapport: RetentionReport,
+  maintenant: number,
+  now: () => number,
+  taille: number,
+): Promise<number> {
   // FILTRE SUR LA PLATEFORME. Les comptes Instagram, Facebook et TikTok ne
   // sont même pas lus : ces règles sont celles de YouTube, et étendre la
   // purge à d'autres réseaux serait une décision distincte.
@@ -272,14 +369,15 @@ export async function runYouTubeRetention(deps: RetentionDeps): Promise<Retentio
     // `identity_refreshed_at` ramènerait à chaque passe le compte qui échoue
     // le plus, et les autres ne seraient jamais examinés.
     .order("identity_attempted_at", { ascending: true, nullsFirst: true })
-    .limit(deps.batchSize ?? LOT_DEFAUT);
+    .limit(taille);
 
   if (error) {
     console.error(`[retention] lecture: ${error.code ?? "erreur"}`);
-    return rapport;
+    return 0;
   }
+  const lignes = (data ?? []) as unknown as RetentionAccount[];
 
-  for (const compte of (data ?? []) as unknown as RetentionAccount[]) {
+  for (const compte of lignes) {
     rapport.examines += 1;
     const decision = decideRetention(compte, maintenant);
 
@@ -365,16 +463,7 @@ export async function runYouTubeRetention(deps: RetentionDeps): Promise<Retentio
     }
   }
 
-  // Indépendant des comptes : une publication vieillit même si son compte est
-  // toujours connecté et sa carte fraîchement relue.
-  rapport.publicationsPurgees = await purgeStalePublications(deps, maintenant);
-
-  console.info(
-    `[retention] examines=${rapport.examines} rafraichis=${rapport.rafraichis} ` +
-      `purges=${rapport.purges} reessais=${rapport.reessais} ` +
-      `publications=${rapport.publicationsPurgees}`,
-  );
-  return rapport;
+  return lignes.length;
 }
 
 async function suiteEchec(

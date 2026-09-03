@@ -13,9 +13,12 @@
  * Cinq scénarios : succès, panne passagère, révocation, données périmées,
  * échec de la purge elle-même.
  */
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { IDENTITY_MAX_AGE_MS, runYouTubeRetention } from "@/server/social/retention";
+import { IDENTITY_MAX_AGE_MS, TERMINAUX, runYouTubeRetention } from "@/server/social/retention";
 import { SocialIdentityUnavailableError, type SocialProvider } from "@/server/social/providers/types";
 
 const MAINTENANT = Date.parse("2026-09-03T12:00:00.000Z");
@@ -252,21 +255,95 @@ describe("révocation : purge immédiate", () => {
   });
 });
 
-describe("données périmées : le plafond s'applique malgré la panne", () => {
-  it("purge au-delà de 30 jours même sans révocation", async () => {
-    const client = fauxClient(
-      [
-        compteYouTube({
-          identity_refreshed_at: new Date(MAINTENANT - IDENTITY_MAX_AGE_MS - JOUR).toISOString(),
-          identity_attempted_at: ilYA(2),
-        }),
-      ],
-      journal,
-    );
-    // Le provider n'est même pas sollicité : la décision précède l'appel.
+describe("données périmées : relire d'abord, purger seulement si ça échoue", () => {
+  const perime = () =>
+    compteYouTube({
+      identity_refreshed_at: new Date(MAINTENANT - IDENTITY_MAX_AGE_MS - JOUR).toISOString(),
+      identity_attempted_at: ilYA(2),
+    });
+
+  it("une identité de 31 jours qui se relit est SAUVÉE, pas détruite", async () => {
+    // « Delete OR refresh » : le refresh satisfait l'obligation. Purger une
+    // identité qu'on sait relire transformerait un retard de notre passe en
+    // perte de données.
+    const client = fauxClient([perime()], journal);
     const rapport = await runYouTubeRetention(deps(client, fauxProvider({})));
+    expect(rapport.rafraichis).toBe(1);
+    expect(rapport.purges).toBe(0);
+    expect(journal.rpc.filter((r) => r.nom === "disconnect_social_account")).toHaveLength(0);
+  });
+
+  it("purge si la relecture échoue au-delà du plafond", async () => {
+    const client = fauxClient([perime()], journal);
+    const provider = fauxProvider({
+      fetchIdentity: async () => {
+        throw new Error("youtube channels: HTTP 503 backendError");
+      },
+    });
+    const rapport = await runYouTubeRetention(deps(client, provider));
     expect(rapport.purges).toBe(1);
-    expect(rapport.rafraichis).toBe(0);
+    expect(rapport.resultats).toContainEqual({
+      accountId: "acc-1", action: "purged", reason: "stale",
+    });
+  });
+});
+
+describe("capacité : plusieurs lots par invocation", () => {
+  it("enchaîne les lots tant qu'il reste du travail", async () => {
+    // Un seul lot par jour plafonnait le service à 25 comptes traités
+    // quotidiennement, donc ~175 comptes au rythme hebdomadaire. Au-delà, la
+    // file s'allongeait en silence.
+    let restants = 7;
+    const client = {
+      from: () => {
+        const self: Record<string, unknown> = {};
+        const rendre = () => self;
+        Object.assign(self, {
+          select: rendre, eq: rendre, in: rendre, is: rendre, lt: rendre,
+          order: rendre, update: rendre,
+          limit: async () => {
+            const n = Math.min(3, restants);
+            restants -= n;
+            return {
+              data: Array.from({ length: n }, (_, i) => ({
+                ...compteYouTube({ id: `acc-${restants}-${i}`, status: "revoked" }),
+              })),
+              error: null,
+            };
+          },
+          maybeSingle: async () => ({ data: null, error: null }),
+          then: (r: (v: unknown) => void) => Promise.resolve({ data: [], error: null }).then(r),
+        });
+        return self;
+      },
+      rpc: async (nom: string, args: Record<string, unknown>) => {
+        journal.rpc.push({ nom, args });
+        return { data: [{ cancelled: 0, purged: 0 }], error: null };
+      },
+    } as never;
+
+    const rapport = await runYouTubeRetention({
+      ...deps(client, fauxProvider({})),
+      batchSize: 3,
+    });
+
+    // 3 + 3 + 1 : le lot incomplet arrête la boucle.
+    expect(rapport.lots).toBe(3);
+    expect(rapport.examines).toBe(7);
+    expect(rapport.sature).toBe(false);
+  });
+
+  it("signale la saturation plutôt que de laisser la file grossir en silence", async () => {
+    // Budget épuisé alors qu'il reste du travail : le rapport doit le DIRE.
+    const client = fauxClient([compteYouTube({ status: "revoked" })], journal);
+    let t = 0;
+    const rapport = await runYouTubeRetention({
+      ...deps(client, fauxProvider({})),
+      batchSize: 1,
+      budgetMs: 10,
+      monotonic: () => (t += 100),
+    });
+    expect(rapport.sature).toBe(true);
   });
 });
 
@@ -283,6 +360,51 @@ describe("échec de la purge : signalé, jamais silencieux", () => {
       action: "retry",
       detail: "purge_failed",
     });
+  });
+});
+
+describe("publications : rien de ce qui est EN VOL n'est touché", () => {
+  /**
+   * LE RISQUE. `container_id` porte l'URI de la session d'envoi résumable.
+   * L'effacer sur une publication `pending` ferait rouvrir une session au
+   * prochain réveil du planificateur — donc CRÉER UNE SECONDE VIDÉO sur la
+   * chaîne de l'utilisateur. Et `scheduled` peut viser une échéance à 364
+   * jours : compter depuis la création purgerait une publication à venir.
+   *
+   * On lit le filtre dans la source. Une doublure rendrait ce qu'on lui
+   * souffle ; ici c'est la REQUÊTE qu'il faut prouver.
+   */
+  const source = () => {
+    const brut = readFileSync(resolve(process.cwd(), "src/server/social/retention.ts"), "utf8");
+    const debut = brut.indexOf("export async function purgeStalePublications");
+    return brut.slice(debut, brut.indexOf(String.fromCharCode(10) + "}", debut));
+  };
+
+  it("restreint aux statuts terminaux : ni scheduled, ni pending", () => {
+    const bloc = source();
+    expect(bloc).toMatch(/\.in\("status",\s*TERMINAUX\)/);
+    expect(TERMINAUX).toEqual(["published", "failed", "canceled"]);
+    // Les deux états en vol sont ABSENTS de la liste. Le schéma ne comporte
+    // pas de `processing` : c'est `pending` qui joue ce rôle.
+    expect(TERMINAUX as readonly string[]).not.toContain("pending");
+    expect(TERMINAUX as readonly string[]).not.toContain("scheduled");
+  });
+
+  it("mesure l'âge sur updated_at, JAMAIS sur created_at", () => {
+    // Une publication créée aujourd'hui pour un envoi dans 60 jours serait
+    // purgée au 30e jour si l'on comptait depuis la création — alors qu'elle
+    // n'est même pas partie.
+    const bloc = source();
+    expect(bloc).toMatch(/\.lt\("updated_at",\s*limite\)/);
+    expect(bloc).not.toMatch(/\.lt\("created_at"/);
+  });
+
+  it("n'efface jamais container_id d'une ligne encore réclamable", () => {
+    // Formulation complémentaire du même invariant, côté effets : les quatre
+    // champs effacés le sont, mais uniquement sous le filtre ci-dessus.
+    const bloc = source();
+    expect(bloc).toMatch(/container_id: null/);
+    expect(bloc).toMatch(/\.is\("purged_at",\s*null\)/);
   });
 });
 
