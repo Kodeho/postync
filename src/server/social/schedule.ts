@@ -11,6 +11,7 @@ import {
   type PublishFailureCode,
 } from "./publish";
 import type { PublishMediaKind } from "./providers/types";
+import { parseYouTubeMetadata, type YouTubeMetadata } from "@/lib/youtube-metadata";
 
 /**
  * Planification d'une publication (C10.1).
@@ -61,6 +62,15 @@ export type ScheduleRequest = {
   mediaAssetId?: string | null;
   mediaUrl?: string;
   caption: string | null;
+  /**
+   * Métadonnées YouTube. Elles sont validées ET ENREGISTRÉES ici : c'est la
+   * saisie qui fait foi, pas l'exécution. Le planificateur les relira dans la
+   * ligne, il ne les redemandera à personne.
+   */
+  title?: string | null;
+  privacyStatus?: string | null;
+  madeForKids?: boolean | null;
+  guidelinesAcknowledged?: boolean | null;
   /** Échéance demandée, en ISO 8601. */
   scheduledAt: string;
 };
@@ -161,6 +171,28 @@ export async function schedulePublication(
     return { ok: false, code: "missing_scope" };
   }
 
+  // Les déclarations YouTube sont exigées À LA SAISIE. Les valider seulement à
+  // l'exécution laisserait l'utilisateur croire sa publication programmée,
+  // pour la voir échouer sans lui plus tard — c'est précisément ce qui se
+  // passait avec le titre, que ce module ne conservait pas.
+  let youtube: YouTubeMetadata | null = null;
+  if (account.platform === "youtube") {
+    const metadonnees = parseYouTubeMetadata(
+      {
+        title: request.title,
+        privacyStatus: request.privacyStatus,
+        madeForKids: request.madeForKids,
+        guidelinesAcknowledged: request.guidelinesAcknowledged,
+      },
+      now,
+    );
+    if (!metadonnees.ok) {
+      return { ok: false, code: metadonnees.code };
+    }
+    youtube = metadonnees.value;
+  }
+
+
   // Média : on ne signe rien, mais on vérifie qu'il EXISTE, qu'il est prêt et
   // qu'il convient à ce réseau. C'est le contrôle qui a le plus de valeur ici,
   // parce qu'il serait autrement découvert à l'échéance.
@@ -224,6 +256,10 @@ export async function schedulePublication(
       status: "scheduled",
       scheduled_at: echeance.iso,
       requested_by: request.requestedBy,
+      title: youtube?.title ?? null,
+      privacy_status: youtube?.privacyStatus ?? null,
+      made_for_kids: youtube?.madeForKids ?? null,
+      guidelines_acknowledged_at: youtube?.guidelinesAcknowledgedAt ?? null,
     })
     .select("id")
     .single<{ id: string }>();

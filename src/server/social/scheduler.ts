@@ -76,6 +76,15 @@ type PublicationRow = {
   media_asset_id: string | null;
   caption: string | null;
   requested_by: string | null;
+  /**
+   * Déclarations YouTube faites À LA SAISIE. Le planificateur ne les
+   * interprète pas : il les relaie. `publish.ts` les revalide à l'adoption de
+   * la ligne, et met la publication en échec si elles manquent.
+   */
+  title: string | null;
+  privacy_status: string | null;
+  made_for_kids: boolean | null;
+  guidelines_acknowledged_at: string | null;
 };
 
 export type SchedulerDeps = PublishDeps & {
@@ -243,6 +252,13 @@ async function publierDepuis(
     // Chemin historique par URL manuelle : la référence stockée EST l'URL.
     mediaUrl: publication.media_asset_id ? undefined : publication.media_url,
     caption: publication.caption,
+    // Relayées pour mémoire : `publish.ts` fait autorité en relisant la ligne
+    // qu'il adopte. Les passer ici garde le chemin lisible et permet aux tests
+    // de vérifier le trajet sans base.
+    title: publication.title,
+    privacyStatus: publication.privacy_status,
+    madeForKids: publication.made_for_kids,
+    guidelinesAcknowledged: publication.guidelines_acknowledged_at !== null,
     existingPublicationId: publication.id,
   });
 }
@@ -284,7 +300,8 @@ async function readPublication(
   const { data } = await db
     .from("social_publications")
     .select(
-      "id, workspace_id, social_account_id, media_kind, media_url, media_asset_id, caption, requested_by",
+      "id, workspace_id, social_account_id, media_kind, media_url, media_asset_id, caption, " +
+        "requested_by, title, privacy_status, made_for_kids, guidelines_acknowledged_at",
     )
     .eq("id", id)
     .maybeSingle<PublicationRow>();
