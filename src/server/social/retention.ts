@@ -230,6 +230,10 @@ export type RetentionReport = {
  * qu'à la déconnexion du compte. Une publication d'un compte toujours
  * connecté les gardait indéfiniment.
  *
+ * L'échéance se compte depuis `platform_data_at`, l'instant d'ACQUISITION —
+ * jamais depuis `updated_at`, qu'une écriture sans rapport avec YouTube
+ * remonterait, repoussant artificiellement la purge.
+ *
  * CE QUI SURVIT, et c'est le point : la légende, le média, la plateforme, les
  * dates et le statut. Ils viennent de l'utilisateur ou de nous, pas de
  * YouTube. L'historique garde son sens — « une vidéo est partie sur YouTube
@@ -259,12 +263,16 @@ export async function purgeStalePublications(
     // comporte pas de `processing` — c'est `pending` qui joue ce rôle.
     .in("status", TERMINAUX)
     .is("purged_at", null)
-    // `updated_at`, pas `created_at`. Une publication peut être créée
-    // longtemps avant son envoi : le formulaire accepte une échéance jusqu'à
-    // 364 jours. Compter depuis la création purgerait une publication encore
-    // à venir. `updated_at` marque le moment où la ligne a cessé de bouger,
-    // c'est-à-dire depuis quand nous détenons réellement ces données.
-    .lt("updated_at", limite)
+    // `platform_data_at` : l'instant où la donnée a été OBTENUE.
+    //
+    // Ni `created_at`, qui peut précéder l'envoi de 364 jours et purgerait
+    // une donnée obtenue la veille. Ni `updated_at`, qu'un trigger remonte à
+    // chaque écriture : une correction de légende repousserait l'échéance des
+    // 30 jours, et la donnée serait conservée au-delà de ce que III.E.4.c
+    // autorise. Cette colonne-ci n'est écrite qu'aux deux sites
+    // d'acquisition, et rien d'autre n'y touche.
+    .not("platform_data_at", "is", null)
+    .lt("platform_data_at", limite)
     .select("id");
 
   if (error) {

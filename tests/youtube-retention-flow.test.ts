@@ -72,6 +72,7 @@ function fauxClient(comptes: Record<string, unknown>[], journal: Journal, option
       },
       in: rendre,
       is: rendre,
+      not: rendre,
       lt: rendre,
       order: rendre,
       update: (valeurs: Record<string, unknown>) => {
@@ -299,7 +300,7 @@ describe("capacité : plusieurs lots par invocation", () => {
         const self: Record<string, unknown> = {};
         const rendre = () => self;
         Object.assign(self, {
-          select: rendre, eq: rendre, in: rendre, is: rendre, lt: rendre,
+          select: rendre, eq: rendre, in: rendre, is: rendre, not: rendre, lt: rendre,
           order: rendre, update: rendre,
           limit: async () => {
             const n = Math.min(3, restants);
@@ -390,13 +391,23 @@ describe("publications : rien de ce qui est EN VOL n'est touché", () => {
     expect(TERMINAUX as readonly string[]).not.toContain("scheduled");
   });
 
-  it("mesure l'âge sur updated_at, JAMAIS sur created_at", () => {
-    // Une publication créée aujourd'hui pour un envoi dans 60 jours serait
-    // purgée au 30e jour si l'on comptait depuis la création — alors qu'elle
-    // n'est même pas partie.
+  it("mesure l'âge sur platform_data_at — ni created_at, ni updated_at", () => {
+    // `created_at` peut précéder l'envoi de 364 jours : on purgerait une
+    // donnée obtenue la veille. `updated_at` est remonté par un trigger à
+    // CHAQUE écriture : une correction de légende repousserait l'échéance des
+    // 30 jours, et la donnée serait conservée au-delà de ce qui est permis.
     const bloc = source();
-    expect(bloc).toMatch(/\.lt\("updated_at",\s*limite\)/);
+    expect(bloc).toMatch(/\.lt\("platform_data_at",\s*limite\)/);
     expect(bloc).not.toMatch(/\.lt\("created_at"/);
+    expect(bloc).not.toMatch(/\.lt\("updated_at"/);
+  });
+
+  it("ignore les lignes sans aucune donnée de plateforme", () => {
+    // `platform_data_at` nul signifie « rien n'a jamais été obtenu » : il n'y
+    // a rien à purger, et le filtre doit les écarter plutôt que de les
+    // compter comme infiniment anciennes.
+    const bloc = source();
+    expect(bloc).toMatch(/\.not\("platform_data_at",\s*"is",\s*null\)/);
   });
 
   it("n'efface jamais container_id d'une ligne encore réclamable", () => {
@@ -405,6 +416,66 @@ describe("publications : rien de ce qui est EN VOL n'est touché", () => {
     const bloc = source();
     expect(bloc).toMatch(/container_id: null/);
     expect(bloc).toMatch(/\.is\("purged_at",\s*null\)/);
+  });
+});
+
+describe("l'échéance ne se reporte pas sur une modification étrangère", () => {
+  /**
+   * LE PIÈGE. `updated_at` est remonté par un trigger à chaque écriture sur
+   * la ligne. Dater la rétention dessus signifiait qu'une correction de
+   * légende, un changement de statut — n'importe quelle écriture sans rapport
+   * avec YouTube — repoussait l'échéance de 30 jours. La donnée aurait été
+   * conservée au-delà de ce que III.E.4.c autorise, indéfiniment si la ligne
+   * était touchée régulièrement.
+   *
+   * `platform_data_at` n'est écrit qu'aux deux sites d'ACQUISITION.
+   */
+  it("platform_data_at n'est écrit qu'où une donnée de plateforme est obtenue", () => {
+    const src = readFileSync(resolve(process.cwd(), "src/server/social/publish.ts"), "utf8");
+    // On compte les AFFECTATIONS, pas les mentions : la première version de
+    // ce test comptait aussi le commentaire qui explique la colonne, et
+    // échouait sur du texte.
+    const ecritures = (src.match(/platform_data_at:/g) ?? []).length;
+    // Deux écritures, et deux seulement : conteneur ouvert, publication
+    // réussie. Une troisième serait un report d'échéance à justifier.
+    expect(ecritures).toBe(2);
+    // Elles accompagnent chacune l'acquisition qu'elles datent.
+    expect(src).toMatch(/container_id: containerId,\s*platform_data_at:/);
+    expect(src).toMatch(/platform_data_at: publieLe/);
+  });
+
+  it("aucun trigger ni écriture de confort ne touche la colonne", () => {
+    const mig = readFileSync(
+      resolve(process.cwd(), "supabase/migrations/20260903150000_publication_platform_data_at.sql"),
+      "utf8",
+    );
+    // Le backfill est la SEULE écriture de la migration, et il ne vise que
+    // les lignes portant déjà une donnée de plateforme.
+    expect(mig).toMatch(/set platform_data_at = coalesce\(published_at, created_at\)/);
+    expect(mig).toMatch(/where platform_data_at is null/);
+    expect(mig).not.toMatch(/create trigger/i);
+    expect(mig).not.toMatch(/default now\(\)/i);
+  });
+
+  it("pour une publication réussie, la date d'acquisition EST published_at", () => {
+    // Vérifié dans le code : les deux valeurs sont écrites dans la même
+    // instruction, depuis la même variable.
+    const src = readFileSync(resolve(process.cwd(), "src/server/social/publish.ts"), "utf8");
+    expect(src).toMatch(/published_at: publieLe,/);
+    expect(src).toMatch(/platform_data_at: publieLe,/);
+  });
+
+  it("le repli du backfill est CONSERVATEUR, jamais plus tardif", () => {
+    // `coalesce(published_at, created_at)` : `created_at` est antérieur ou
+    // égal à l'acquisition. L'échéance tombe donc au plus tôt. Se tromper
+    // ainsi fait perdre un lien d'historique ; l'inverse serait un
+    // manquement.
+    const mig = readFileSync(
+      resolve(process.cwd(), "supabase/migrations/20260903150000_publication_platform_data_at.sql"),
+      "utf8",
+    );
+    expect(mig).not.toMatch(/coalesce\(updated_at/);
+    expect(mig).not.toMatch(/= now\(\)/);
   });
 });
 

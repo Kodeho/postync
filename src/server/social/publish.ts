@@ -397,13 +397,19 @@ async function finishPublication(
       .catch(() => null);
   }
 
+  const publieLe = new Date(deps.now?.() ?? Date.now()).toISOString();
   await deps.db
     .from("social_publications")
     .update({
       status: "published",
       provider_media_id: providerMediaId,
       permalink,
-      published_at: new Date(deps.now?.() ?? Date.now()).toISOString(),
+      published_at: publieLe,
+      // MÊME INSTANT que `published_at`, et c'est le fond de l'affaire :
+      // `provider_media_id` et `permalink` sont obtenus ici. `platform_data_at`
+      // date l'ACQUISITION, contrairement à `updated_at` qu'une écriture sans
+      // rapport remonterait, repoussant l'échéance des 30 jours.
+      platform_data_at: publieLe,
       status_detail: detail,
     })
     .eq("id", publicationId);
@@ -653,7 +659,11 @@ export async function publishToSocialAccount(
   // lignes `pending`. Rien n'est repris, rien n'est renvoyé.
   const { error: persistError } = await db
     .from("social_publications")
-    .update({ container_id: containerId })
+    // `container_id` est la PREMIÈRE donnée de plateforme obtenue pour cette
+    // ligne : c'est ici que commence le décompte des 30 jours. Une publication
+    // qui échouera ensuite gardera cette date, seule trace fiable de l'instant
+    // où l'URI de session nous a été remise.
+    .update({ container_id: containerId, platform_data_at: new Date(now()).toISOString() })
     .eq("id", publicationId);
   if (persistError) {
     console.error(`[social:publish] ${account.platform} container persist: ${persistError.code}`);
