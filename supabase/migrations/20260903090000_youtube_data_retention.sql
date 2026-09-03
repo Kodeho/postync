@@ -41,24 +41,51 @@
 -- passe, et purgerait des comptes valides.
 -- ===========================================================================
 
+-- TROIS colonnes, et la distinction entre les deux premières est essentielle :
+--
+--   `identity_refreshed_at` — dernière relecture RÉUSSIE. C'est l'horloge de
+--     la rétention, et rien d'autre ne doit la faire avancer. L'avancer sur un
+--     échec présenterait une donnée ancienne comme fraîche : exactement ce que
+--     la règle des 30 jours interdit.
+--
+--   `identity_attempted_at` — dernière TENTATIVE, réussie ou non. Sert à
+--     ordonner les lots et à espacer les reprises. Sans elle, un compte qui
+--     échoue garde la plus ancienne date de relecture, revient en tête à
+--     chaque passe, et affame tous les autres.
 alter table public.social_accounts
-  add column if not exists identity_refreshed_at    timestamptz,
+  add column if not exists identity_refreshed_at     timestamptz,
+  add column if not exists identity_attempted_at     timestamptz,
   add column if not exists identity_refresh_failures smallint not null default 0;
 
+-- BACKFILL. `connected_at` EST la date à laquelle l'identité a été lue :
+-- `callback.ts` appelle `channels.list` puis insère la ligne dans la foulée.
+-- Ce n'est donc pas une approximation commode, c'est la valeur exacte.
+--
+-- Les deux autres options seraient fausses. Dater d'aujourd'hui présenterait
+-- une donnée de plusieurs semaines comme fraîchement relue, et remettrait à
+-- zéro un compteur de 30 jours déjà entamé. Laisser nul ferait passer des
+-- comptes valides pour périmés dès la première passe.
+--
+-- `identity_attempted_at` reste NUL : aucune tentative n'a jamais eu lieu, et
+-- l'ordre `nulls first` les fait justement examiner en premier.
 update public.social_accounts
    set identity_refreshed_at = connected_at
  where identity_refreshed_at is null;
 
 comment on column public.social_accounts.identity_refreshed_at is
   'Dernière relecture de l''identité de chaîne auprès de la plateforme. Sert le plafond de 30 jours des Developer Policies III.E.4.c.';
+comment on column public.social_accounts.identity_attempted_at is
+  'Dernière TENTATIVE de relecture, réussie ou non. Ordonne les lots et espace les reprises. Ne participe jamais au calcul de la rétention.';
 comment on column public.social_accounts.identity_refresh_failures is
   'Échecs PASSAGERS consécutifs de la relecture. Une révocation confirmée ne passe pas par ce compteur : elle purge immédiatement.';
 
 -- Les passes n'examinent que les lignes les plus anciennes : index sur la
 -- fraîcheur, restreint aux comptes encore actifs.
-create index if not exists social_accounts_identity_staleness_idx
-  on public.social_accounts (identity_refreshed_at nulls first)
-  where status = 'active';
+-- L'ordre des lots suit les TENTATIVES, pas les réussites : c'est ce qui
+-- empêche un compte durablement en échec de monopoliser chaque passe.
+create index if not exists social_accounts_identity_attempt_idx
+  on public.social_accounts (identity_attempted_at nulls first)
+  where platform = 'youtube';
 
 grant select (identity_refreshed_at) on public.social_accounts to authenticated;
 

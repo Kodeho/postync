@@ -68,13 +68,15 @@ export async function POST(request: Request) {
     // identifiant de chaîne, aucun nom affiché.
     console.log(
       `[cron:retention] examines=${rapport.examines} rafraichis=${rapport.rafraichis} ` +
-        `purges=${rapport.purges} reessais=${rapport.reessais}`,
+        `purges=${rapport.purges} reessais=${rapport.reessais} ` +
+        `publications=${rapport.publicationsPurgees}`,
     );
     return NextResponse.json({
       examines: rapport.examines,
       rafraichis: rapport.rafraichis,
       purges: rapport.purges,
       reessais: rapport.reessais,
+      publicationsPurgees: rapport.publicationsPurgees,
     });
   } catch (err) {
     console.error(

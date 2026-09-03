@@ -48,6 +48,9 @@ function compte(p: Partial<RetentionAccount> = {}): RetentionAccount {
     status: "active",
     connected_at: ilYA(1),
     identity_refreshed_at: ilYA(1),
+    // Ancienne tentative : la garde d'espacement ne doit pas masquer le cas
+    // que chaque test cherche à vérifier.
+    identity_attempted_at: ilYA(1),
     identity_refresh_failures: 0,
     ...p,
   };

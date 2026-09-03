@@ -58,6 +58,17 @@ export const IDENTITY_REFRESH_AFTER_DAYS = 7;
  */
 export const IDENTITY_MAX_AGE_DAYS = 30;
 
+/**
+ * Deux passes ne doivent pas se disputer le même compte.
+ *
+ * Le planificateur de publication se protège par une réclamation atomique en
+ * base ; ici l'enjeu est moindre — au pire deux relectures, donc du quota
+ * dépensé pour rien — mais deux passes simultanées doubleraient les appels
+ * distants. Espacer les tentatives d'une heure suffit, et se lit dans une
+ * colonne plutôt que dans un verrou.
+ */
+export const MIN_ATTEMPT_INTERVAL_MS = 60 * 60 * 1000;
+
 const JOUR_MS = 24 * 60 * 60 * 1000;
 export const IDENTITY_REFRESH_AFTER_MS = IDENTITY_REFRESH_AFTER_DAYS * JOUR_MS;
 export const IDENTITY_MAX_AGE_MS = IDENTITY_MAX_AGE_DAYS * JOUR_MS;
@@ -70,6 +81,8 @@ export type RetentionAccount = {
   status: string;
   connected_at: string;
   identity_refreshed_at: string | null;
+  /** Dernière TENTATIVE. Ne participe jamais au calcul de la rétention. */
+  identity_attempted_at: string | null;
   identity_refresh_failures: number | null;
 };
 
@@ -88,9 +101,17 @@ export type RetentionDecision =
 export function decideRetention(compte: RetentionAccount, maintenant: number): RetentionDecision {
   // Une révocation DÉJÀ constatée ailleurs (échec de renouvellement lors d'une
   // publication) attend sa purge : le statut fait foi, on ne redemande rien à
-  // la plateforme.
+  // la plateforme. Cette purge n'est PAS espacée — il n'y a plus rien à
+  // ménager, et le délai réglementaire court déjà.
   if (compte.status === "revoked") {
     return { action: "purge", reason: "revoked" };
+  }
+
+  // Tentative trop récente : une autre passe s'en occupe, ou vient de le
+  // faire. On ne redouble pas les appels distants.
+  const tenteLe = compte.identity_attempted_at ? Date.parse(compte.identity_attempted_at) : null;
+  if (tenteLe !== null && !Number.isNaN(tenteLe) && maintenant - tenteLe < MIN_ATTEMPT_INTERVAL_MS) {
+    return { action: "keep" };
   }
 
   // `null` ne peut arriver que sur une ligne créée par du code antérieur à la
@@ -169,8 +190,58 @@ export type RetentionReport = {
   rafraichis: number;
   purges: number;
   reessais: number;
+  /** Publications dont les identifiants de plateforme ont été effacés. */
+  publicationsPurgees: number;
   resultats: RetentionOutcome[];
 };
+
+/**
+ * Efface les identifiants venus de YouTube dans les publications passées.
+ *
+ * CE QUE LA CARTE DU COMPTE NE COUVRE PAS. `social_publications` conserve
+ * quatre champs issus de la plateforme, indépendamment du compte :
+ *
+ *   `provider_account_id` — identifiant de la chaîne ;
+ *   `provider_media_id`   — identifiant de la vidéo ;
+ *   `permalink`           — son URL ;
+ *   `container_id`        — l'URI de session d'envoi résumable.
+ *
+ * Ils relèvent du même plafond de 30 jours (III.E.4.c) et n'étaient effacés
+ * qu'à la déconnexion du compte. Une publication d'un compte toujours
+ * connecté les gardait indéfiniment.
+ *
+ * CE QUI SURVIT, et c'est le point : la légende, le média, la plateforme, les
+ * dates et le statut. Ils viennent de l'utilisateur ou de nous, pas de
+ * YouTube. L'historique garde son sens — « une vidéo est partie sur YouTube
+ * tel jour » — sans porter la moindre donnée de la plateforme. C'est
+ * exactement la sémantique de `disconnect_social_account`, appliquée cette
+ * fois au temps plutôt qu'à la déconnexion.
+ */
+export async function purgeStalePublications(
+  deps: RetentionDeps,
+  maintenant: number,
+): Promise<number> {
+  const limite = new Date(maintenant - IDENTITY_MAX_AGE_MS).toISOString();
+  const { data, error } = await deps.db
+    .from("social_publications")
+    .update({
+      provider_account_id: null,
+      provider_media_id: null,
+      permalink: null,
+      container_id: null,
+      purged_at: new Date(maintenant).toISOString(),
+    })
+    .eq("platform", "youtube")
+    .is("purged_at", null)
+    .lt("created_at", limite)
+    .select("id");
+
+  if (error) {
+    console.error(`[retention] purge publications: ${error.code ?? "erreur"}`);
+    return 0;
+  }
+  return (data ?? []).length;
+}
 
 const LOT_DEFAUT = 25;
 
@@ -182,7 +253,9 @@ const LOT_DEFAUT = 25;
 export async function runYouTubeRetention(deps: RetentionDeps): Promise<RetentionReport> {
   const now = deps.now ?? Date.now;
   const maintenant = now();
-  const rapport: RetentionReport = { examines: 0, rafraichis: 0, purges: 0, reessais: 0, resultats: [] };
+  const rapport: RetentionReport = {
+    examines: 0, rafraichis: 0, purges: 0, reessais: 0, publicationsPurgees: 0, resultats: [],
+  };
 
   // FILTRE SUR LA PLATEFORME. Les comptes Instagram, Facebook et TikTok ne
   // sont même pas lus : ces règles sont celles de YouTube, et étendre la
@@ -190,11 +263,15 @@ export async function runYouTubeRetention(deps: RetentionDeps): Promise<Retentio
   const { data, error } = await deps.db
     .from("social_accounts")
     .select(
-      "id, workspace_id, platform, status, connected_at, identity_refreshed_at, identity_refresh_failures",
+      "id, workspace_id, platform, status, connected_at, identity_refreshed_at, " +
+        "identity_attempted_at, identity_refresh_failures",
     )
     .eq("platform", "youtube")
     .in("status", ["active", "expired", "error", "revoked"])
-    .order("identity_refreshed_at", { ascending: true, nullsFirst: true })
+    // ORDRE PAR TENTATIVE, pas par réussite. Ordonner par
+    // `identity_refreshed_at` ramènerait à chaque passe le compte qui échoue
+    // le plus, et les autres ne seraient jamais examinés.
+    .order("identity_attempted_at", { ascending: true, nullsFirst: true })
     .limit(deps.batchSize ?? LOT_DEFAUT);
 
   if (error) {
@@ -202,7 +279,7 @@ export async function runYouTubeRetention(deps: RetentionDeps): Promise<Retentio
     return rapport;
   }
 
-  for (const compte of (data ?? []) as RetentionAccount[]) {
+  for (const compte of (data ?? []) as unknown as RetentionAccount[]) {
     rapport.examines += 1;
     const decision = decideRetention(compte, maintenant);
 
@@ -232,9 +309,33 @@ export async function runYouTubeRetention(deps: RetentionDeps): Promise<Retentio
       continue;
     }
 
-    const token = await getUsableAccessToken({ db: deps.db, now }, provider, complet);
+    // RENOUVELLEMENT FORCÉ. Un access token encore valide ne prouve rien sur
+    // le refresh token, et c'est celui-ci que III.D.2 demande de reconfirmer.
+    // Sans ce forçage, une révocation faite chez Google ne serait décelée
+    // qu'au 401 de `channels.list` — dont le code (`authError`) n'est pas un
+    // signal documenté, donc classé « passager », donc purgé seulement au
+    // plafond des 30 jours. L'échange du refresh token, lui, rend un
+    // `invalid_grant` sans ambiguïté.
+    await deps.db
+      .from("social_accounts")
+      .update({ identity_attempted_at: new Date(maintenant).toISOString() })
+      .eq("id", compte.id);
+
+    const token = await getUsableAccessToken({ db: deps.db, now }, provider, complet, {
+      forceRefresh: true,
+    });
     if (!token.ok) {
-      await suiteEchec(deps, compte, token.code, maintenant, rapport);
+      // `getUsableAccessToken` ne rend qu'un code générique — `needs_reconnect`
+      // aussi bien pour une révocation que pour une panne. Le VERDICT, lui,
+      // est déjà écrit dans la ligne : ce module classe l'échec et pose
+      // `status = 'revoked'` avec `status_detail = 'refresh_revoked'`.
+      //
+      // On relit donc la ligne plutôt que de reclasser un message qu'on n'a
+      // plus. Dupliquer la classification ici la ferait diverger.
+      const apres = await relireStatut(deps.db, compte.id);
+      const detail =
+        apres?.status === "revoked" ? "invalid_grant" : (apres?.status_detail ?? token.code);
+      await suiteEchec(deps, compte, detail, maintenant, rapport);
       continue;
     }
 
@@ -264,8 +365,14 @@ export async function runYouTubeRetention(deps: RetentionDeps): Promise<Retentio
     }
   }
 
+  // Indépendant des comptes : une publication vieillit même si son compte est
+  // toujours connecté et sa carte fraîchement relue.
+  rapport.publicationsPurgees = await purgeStalePublications(deps, maintenant);
+
   console.info(
-    `[retention] examines=${rapport.examines} rafraichis=${rapport.rafraichis} purges=${rapport.purges} reessais=${rapport.reessais}`,
+    `[retention] examines=${rapport.examines} rafraichis=${rapport.rafraichis} ` +
+      `purges=${rapport.purges} reessais=${rapport.reessais} ` +
+      `publications=${rapport.publicationsPurgees}`,
   );
   return rapport;
 }
@@ -319,6 +426,19 @@ async function purger(
   }
   rapport.purges += 1;
   rapport.resultats.push({ accountId: compte.id, action: "purged", reason });
+}
+
+/** Statut tel que `getUsableAccessToken` vient éventuellement de l'écrire. */
+async function relireStatut(
+  db: SupabaseClient,
+  id: string,
+): Promise<{ status: string; status_detail: string | null } | null> {
+  const { data } = await db
+    .from("social_accounts")
+    .select("status, status_detail")
+    .eq("id", id)
+    .maybeSingle();
+  return (data ?? null) as { status: string; status_detail: string | null } | null;
 }
 
 async function lireCompteComplet(db: SupabaseClient, id: string) {
