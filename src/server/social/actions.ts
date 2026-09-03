@@ -255,6 +255,17 @@ const PUBLISH_ERRORS: Record<PublishFailureCode, string> = {
   container_expired:
     "Le média préparé a expiré côté plateforme (24 h). Relancez la publication.",
   provider_error: "La plateforme n'a pas accepté la publication. Réessayez.",
+  // Métadonnées YouTube. Ces codes remontent aussi d'une publication
+  // programmée reprise : ils doivent donc rester lisibles hors du formulaire,
+  // dans le calendrier et la vue d'ensemble.
+  youtube_title_required: "YouTube exige un titre pour la vidéo.",
+  youtube_title_too_long: "Le titre YouTube dépasse 100 caractères.",
+  youtube_privacy_invalid:
+    "Choisissez la visibilité YouTube : privée, non répertoriée ou publique.",
+  youtube_made_for_kids_required:
+    "Indiquez si cette vidéo est destinée aux enfants : YouTube exige cette déclaration, et elle vous engage.",
+  youtube_guidelines_required:
+    "Certifiez que le contenu respecte les Community Guidelines de YouTube avant de publier.",
 };
 
 /**
@@ -439,6 +450,19 @@ export async function broadcastAction(
   const title = String(formData.get("title") ?? "").trim();
   const scheduledAt = String(formData.get("scheduledAt") ?? "").trim();
 
+  // Métadonnées YouTube, lues BRUTES. Aucune n'est normalisée ni complétée
+  // ici : `parseYouTubeMetadata` en juge plus bas, et l'absence de réponse
+  // doit lui parvenir comme une absence.
+  //
+  // `madeForKids` en particulier : un champ radio non coché n'apparaît pas
+  // dans le FormData. On distingue donc explicitement « non renseigné » de
+  // « non », là où un `=== "yes"` aurait silencieusement produit `false`.
+  const madeForKidsRaw = formData.get("madeForKids");
+  const madeForKids =
+    madeForKidsRaw === "yes" ? true : madeForKidsRaw === "no" ? false : null;
+  const privacyStatus = String(formData.get("privacyStatus") ?? "").trim();
+  const guidelinesAcknowledged = formData.get("guidelinesAcknowledged") === "on";
+
   const { supabase, user } = await requireUser();
   const outcome = await broadcastPublication(
     {
@@ -453,6 +477,9 @@ export async function broadcastAction(
       mediaAssetId,
       caption: caption.length > 0 ? caption : null,
       title: title.length > 0 ? title : null,
+      privacyStatus: privacyStatus.length > 0 ? privacyStatus : null,
+      madeForKids,
+      guidelinesAcknowledged,
       socialAccountIds,
       scheduledAt: scheduledAt.length > 0 ? scheduledAt : null,
       shareToFeed: formData.get("shareToFeed") === "on",

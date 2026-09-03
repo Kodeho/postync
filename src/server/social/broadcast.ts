@@ -75,6 +75,10 @@ export type BroadcastRequest = {
    * a pas la notion.
    */
   title?: string | null;
+  /** Métadonnées YouTube — voir `lib/youtube-metadata.ts`. */
+  privacyStatus?: string | null;
+  madeForKids?: boolean | null;
+  guidelinesAcknowledged?: boolean | null;
   /** Comptes visés. Chacun est revérifié contre le workspace en aval. */
   socialAccountIds: string[];
   /** Échéance ISO, ou null pour publier tout de suite. */
@@ -144,6 +148,10 @@ export async function broadcastPublication(
         mediaKind: request.mediaKind,
         mediaAssetId: request.mediaAssetId,
         caption: request.caption,
+        title: request.title ?? null,
+        privacyStatus: request.privacyStatus ?? null,
+        madeForKids: request.madeForKids ?? null,
+        guidelinesAcknowledged: request.guidelinesAcknowledged ?? null,
         scheduledAt: echeance,
       });
       results.push(
@@ -174,6 +182,9 @@ export async function broadcastPublication(
       mediaAssetId: request.mediaAssetId,
       caption: request.caption,
       title: request.title ?? null,
+      privacyStatus: request.privacyStatus ?? null,
+      madeForKids: request.madeForKids ?? null,
+      guidelinesAcknowledged: request.guidelinesAcknowledged ?? null,
       shareToFeed: request.shareToFeed,
     });
 

@@ -82,13 +82,23 @@ export type CreateContainerInput = {
    * `videos.insert`, et c'est l'élément principal de la page vidéo. Les
    * autres réseaux n'ont pas de notion équivalente — chez eux, le texte est
    * la légende — et ignorent donc ce champ.
-   *
+   */
+  title?: string | null;
+  /**
    * Taille en octets du média, quand elle est connue. YouTube l'exige AVANT
    * le premier octet (`X-Upload-Content-Length`) : sans elle, la session
    * résumable ne peut pas être ouverte.
    */
-  title?: string | null;
   byteSize?: number | null;
+  /**
+   * Déclaration `selfDeclaredMadeForKids` de YouTube, faite PAR L'UTILISATEUR.
+   *
+   * Facultatif au niveau du type parce que les autres réseaux n'en ont pas la
+   * notion. Chez YouTube en revanche l'absence est une erreur, pas un `false` :
+   * les Developer Policies III.J imposent de déclarer `true` un contenu
+   * destiné aux enfants, et cette déclaration engage l'utilisateur.
+   */
+  madeForKids?: boolean | null;
 };
 
 /**

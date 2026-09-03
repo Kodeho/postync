@@ -11,6 +11,12 @@ import {
 import { toDeliveryUrl } from "@/server/media/delivery";
 import { signMediaUrl } from "@/server/media/library";
 import { checkMediaForPlatform } from "@/server/media/rules";
+import {
+  parseYouTubeMetadata,
+  readStoredYouTubeMetadata,
+  type YouTubeMetadata,
+  type YouTubeMetadataErrorCode,
+} from "@/lib/youtube-metadata";
 
 import { classifyFailure } from "./failure";
 import { getUsableAccessToken } from "./token";
@@ -50,6 +56,7 @@ export type PublishOutcome =
   | { ok: false; code: PublishFailureCode; publicationId: string | null };
 
 export type PublishFailureCode =
+  | YouTubeMetadataErrorCode
   | "invalid_media_url"
   | "media_not_found"
   | "media_incompatible"
@@ -88,6 +95,19 @@ export type PublishRequest = {
    * providers l'ignorent (voir `CreateContainerInput.title`).
    */
   title?: string | null;
+  /**
+   * Visibilité demandée pour YouTube : `public`, `private` ou `unlisted`.
+   * Exigée par la Required Minimum Functionality — absente, la publication
+   * YouTube est refusée ici même, sans aucun appel distant.
+   */
+  privacyStatus?: string | null;
+  /**
+   * Déclaration `selfDeclaredMadeForKids`. `null` signifie « pas de réponse »
+   * et vaut refus : jamais un `false` implicite.
+   */
+  madeForKids?: boolean | null;
+  /** Certification Community Guidelines cochée par l'utilisateur. */
+  guidelinesAcknowledged?: boolean | null;
   coverUrl?: string | null;
   shareToFeed?: boolean;
   /**
@@ -467,12 +487,40 @@ export async function publishToSocialAccount(
     return { ok: false, code: "missing_scope", publicationId: null };
   }
 
+  // Horloge remontée ici : la validation ci-dessous horodate la certification
+  // Community Guidelines, et une seconde source d'horloge divergerait.
+  const now = deps.now ?? Date.now;
+
+  // Métadonnées YouTube — contrôlées AVANT le quota, avant toute écriture et
+  // avant tout appel distant. Le formulaire fait les mêmes contrôles, mais
+  // c'est ici qu'ils font foi : une requête forgée à la main passe par ce
+  // chemin, pas par le formulaire.
+  //
+  // Une publication programmée reprise n'est PAS revalidée ici : ses
+  // déclarations ont été faites à la saisie et sont en base. Elles sont
+  // relues plus bas, au moment de l'adoption de la ligne.
+  let youtube: YouTubeMetadata | null = null;
+  if (account.platform === "youtube" && !request.existingPublicationId) {
+    const metadonnees = parseYouTubeMetadata(
+      {
+        title: request.title,
+        privacyStatus: request.privacyStatus,
+        madeForKids: request.madeForKids,
+        guidelinesAcknowledged: request.guidelinesAcknowledged,
+      },
+      now,
+    );
+    if (!metadonnees.ok) {
+      return { ok: false, code: metadonnees.code, publicationId: null };
+    }
+    youtube = metadonnees.value;
+  }
+
   // Quota du plan, AVANT tout appel distant.
   //
   // Une publication programmée l'a DÉJÀ consommé à la saisie : la recompter
   // ici la ferait échouer contre elle-même, puisqu'elle figure dans le
   // décompte. On ne revérifie donc que pour une publication nouvelle.
-  const now = deps.now ?? Date.now;
   if (!request.existingPublicationId) {
     const { start, end } = currentMonthRange(now());
     const [quota, { count }] = await Promise.all([
@@ -586,13 +634,35 @@ export async function publishToSocialAccount(
       .eq("id", request.existingPublicationId)
       .eq("workspace_id", request.workspaceId)
       .eq("status", "pending")
-      .select("id")
-      .maybeSingle<{ id: string }>();
+      .select("id, title, privacy_status, made_for_kids, guidelines_acknowledged_at")
+      .maybeSingle<{
+        id: string;
+        title: string | null;
+        privacy_status: string | null;
+        made_for_kids: boolean | null;
+        guidelines_acknowledged_at: string | null;
+      }>();
     if (adoptError || !adoptee) {
       console.error(`[social:publish] adoption: ${adoptError?.code ?? "ligne non réclamable"}`);
       return { ok: false, code: "provider_error", publicationId: request.existingPublicationId };
     }
     publicationId = adoptee.id;
+
+    // Les déclarations de l'utilisateur voyagent par la BASE, pas par le
+    // planificateur : c'est ce qui garantit qu'une publication programmée part
+    // avec EXACTEMENT ce qui a été choisi à la saisie.
+    //
+    // Une ligne YouTube programmée avant cette fonctionnalité n'en porte
+    // aucune. On la met en échec plutôt que de fabriquer des déclarations à la
+    // place de son auteur — `youtube_*` dit précisément ce qui manque.
+    if (account.platform === "youtube") {
+      const stockees = readStoredYouTubeMetadata(adoptee);
+      if (!stockees.ok) {
+        await markFailed(db, publicationId, stockees.code);
+        return { ok: false, code: stockees.code, publicationId };
+      }
+      youtube = stockees.value;
+    }
   } else {
     const { data: created, error: insertError } = await db
       .from("social_publications")
@@ -607,6 +677,12 @@ export async function publishToSocialAccount(
         caption: request.caption,
         requested_by: request.requestedBy,
         status: "pending",
+        // Null hors YouTube : ces colonnes n'ont pas de sens ailleurs, et un
+        // défaut y ferait croire à un choix que personne n'a exprimé.
+        title: youtube?.title ?? null,
+        privacy_status: youtube?.privacyStatus ?? null,
+        made_for_kids: youtube?.madeForKids ?? null,
+        guidelines_acknowledged_at: youtube?.guidelinesAcknowledgedAt ?? null,
       })
       .select("id")
       .single<{ id: string }>();
@@ -629,7 +705,9 @@ export async function publishToSocialAccount(
       shareToFeed: request.shareToFeed,
       durationSeconds: media.durationSeconds,
       byteSize: media.byteSize,
-      title: request.title ?? null,
+      title: youtube?.title ?? request.title ?? null,
+      privacyLevel: youtube?.privacyStatus ?? null,
+      madeForKids: youtube?.madeForKids ?? null,
     });
   } catch (error) {
     const code = shortCode(error);
