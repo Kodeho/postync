@@ -3,8 +3,10 @@
 import { useActionState, useState } from "react";
 
 import { FormAlert } from "@/components/ui/form-alert";
+import { SocialIcon } from "@/components/ui/social-icon";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { instantToWallClock, wallClockToInstant } from "@/lib/time-zone";
+import type { SocialPlatform } from "@/types/platform";
 import {
   YOUTUBE_PRIVACY_STATUSES,
   YOUTUBE_TITLE_MAX_LENGTH,
@@ -364,8 +366,14 @@ export function BroadcastForm({
                       onChange={() => basculer(compte.id)}
                     />
                     <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-medium text-foreground">
-                        {compte.platformLabel} · {compte.label}
+                      <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                        <SocialIcon
+                          platform={compte.platform as SocialPlatform}
+                          className="h-4 w-4 shrink-0"
+                        />
+                        <span className="truncate">
+                          {compte.platformLabel} · {compte.label}
+                        </span>
                       </span>
                       {/* Dire POURQUOI, plutôt que de griser sans explication. */}
                       {etat.reason ? (

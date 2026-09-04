@@ -6,6 +6,7 @@ import { Avatar } from "@/components/ui/avatar";
 import { FormAlert } from "@/components/ui/form-alert";
 import { PageHeader } from "@/components/ui/page-header";
 import { Panel } from "@/components/ui/panel";
+import { SocialIcon } from "@/components/ui/social-icon";
 import {
   ConnectButton,
   DisconnectButton,
@@ -49,11 +50,11 @@ export const metadata: Metadata = {
   title: "Comptes sociaux — POSTYNC",
 };
 
-const PLATFORMS: { key: SocialPlatform; abbr: string }[] = [
-  { key: "instagram", abbr: "Ig" },
-  { key: "facebook", abbr: "Fb" },
-  { key: "tiktok", abbr: "Tt" },
-  { key: "youtube", abbr: "Yt" },
+const PLATFORMS: { key: SocialPlatform }[] = [
+  { key: "instagram" },
+  { key: "facebook" },
+  { key: "tiktok" },
+  { key: "youtube" },
 ];
 
 /** Codes courts renvoyés par le callback — jamais de texte brut d'URL. */
@@ -190,7 +191,7 @@ export default async function AccountsPage({
       {flash ? <FormAlert tone={flash.tone}>{flash.text}</FormAlert> : null}
 
       <ul className="grid gap-4 lg:grid-cols-2" aria-label="Plateformes">
-        {PLATFORMS.map(({ key, abbr }) => {
+        {PLATFORMS.map(({ key }) => {
           const list = byPlatform.get(key) ?? [];
           const available = isProviderAvailable(key);
           const publisher = getProvider(key)?.publisher ?? null;
@@ -200,9 +201,9 @@ export default async function AccountsPage({
                 <div className="flex items-center gap-4">
                   <span
                     aria-hidden="true"
-                    className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-surface-muted text-sm font-semibold text-muted"
+                    className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-surface-muted text-foreground"
                   >
-                    {abbr}
+                    <SocialIcon platform={key} className="h-6 w-6" />
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-semibold text-foreground">{PLATFORM_LABELS[key]}</p>
