@@ -127,6 +127,7 @@ export async function getUsableAccessToken(
   deps: TokenDeps,
   provider: SocialProvider,
   account: TokenAccount,
+  options: { forceRefresh?: boolean } = {},
 ): Promise<UsableTokenResult> {
   const now = deps.now ?? Date.now;
 
@@ -143,7 +144,13 @@ export async function getUsableAccessToken(
     : null;
   // Pas de date d'expiration (jeton de Page Meta) ou encore loin de l'échéance :
   // le jeton part tel quel.
-  if (expiresAt === null || expiresAt - now() > REFRESH_MARGIN_MS) {
+  //
+  // `forceRefresh` court-circuite ce raccourci. La passe de rétention en a
+  // besoin : les Developer Policies III.D.2 demandent de « periodically
+  // reconfirm that its authorization tokens are still valid », et un access
+  // token encore valide ne prouve RIEN sur le refresh token. Seul l'échange
+  // effectif révèle une révocation, par un `invalid_grant` documenté.
+  if (!options.forceRefresh && (expiresAt === null || expiresAt - now() > REFRESH_MARGIN_MS)) {
     return { ok: true, accessToken, refreshed: false };
   }
 
