@@ -21,10 +21,10 @@ uniquement.
 
 | | Staging (`illwldvbunnsublcoewg`) | Production |
 |---|---|---|
-| Migrations `…090000`, `…150000`, `…090000` | ✅ appliquées | à confirmer par SELECT |
-| Job `postync-youtube-retention` | **actif**, `17 4 * * *` | **actif** (déduit des journaux) |
-| Passes observées | 6 `succeeded`, 09-05 → 09-10 | quotidiennes, dont 09-08 et 09-10 |
-| Journal `retention_runs` | 7 lignes, toutes propres | s'écrit (aucune erreur de journal) |
+| Migrations `…090000`, `…150000`, `…090000` | ✅ appliquées | ✅ appliquées (§5.5) |
+| Job `postync-youtube-retention` | **actif**, `17 4 * * *` | **actif**, `17 4 * * *` (§5.1) |
+| Passes observées | 6 `succeeded`, 09-05 → 09-10 | 3 `succeeded`, 09-08 → 09-10 (§5.2) |
+| Journal `retention_runs` | 7 lignes, toutes propres | 3 lignes, concordantes (§5.3) |
 | Purge réelle | aucune (rien d'éligible) | **1 le 2026-09-08** |
 
 ---
@@ -207,9 +207,16 @@ décrit un futur déjà advenu n'informe personne.
 
 L'étape 7 exigeait « une autorisation séparée ». Rien dans ce dossier, dans
 l'historique Git ou dans les journaux ne conserve la trace de cette décision.
-`cron.job_run_details` n'enregistre pas l'auteur d'un `alter_job`. **La question
-« qui a activé le job de production, et quand » restera donc sans réponse**, et
-il vaut mieux l'écrire que l'inventer.
+
+**QUAND est désormais borné** (§5.2) : le premier tir du job de production date
+du 2026-09-08 à 04:17, et la PR #9 a été fusionnée le 2026-09-07. L'activation
+se situe donc dans cette fenêtre de 24 à 48 heures, immédiatement après la
+fusion — ce qui ressemble à l'exécution de l'étape 7 dans la foulée de l'étape 6,
+sans que l'autorisation distincte qu'elle exigeait soit consignée.
+
+**QUI reste inconnu** : `cron.job_run_details` n'enregistre pas l'auteur d'un
+`alter_job`, et aucune autre source du projet ne le porte. Mieux vaut l'écrire
+que l'inventer.
 
 ### 4.1 Incident du 2026-09-08 — une purge réelle, passée inaperçue
 
@@ -259,3 +266,146 @@ comprendre ».
 reconfirmer les jetons et de purger les données au-delà de 30 jours, donc sort
 de la conformité III.D.2 / III.E.4.c. Une coupure est un geste d'urgence, pas
 un état de repos — elle se documente et se referme.
+---
+
+## 5. Preuves de production — relevées le 2026-09-10
+
+Six `SELECT` exécutés dans le SQL Editor Supabase du projet de production
+(KODEHO / Postync / `main` PRODUCTION), en lecture seule. **Aucune écriture,
+aucun appel RPC, aucune modification de configuration.** Les sorties ci-dessous
+sont brutes ; aucune ne contient de donnée personnelle — ce sont des
+métadonnées, des compteurs et des agrégats.
+
+Ce chapitre remplace des déductions par des mesures. Jusqu'ici, l'état de la
+production n'était établi que par les journaux Vercel.
+
+### 5.1 État du job
+
+```sql
+select jobname, schedule, active from cron.job order by jobname;
+```
+
+| jobname | schedule | active |
+|---|---|---|
+| `postync-publish-scheduler` | `* * * * *` | true |
+| `postync-youtube-retention` | `17 4 * * *` | **true** |
+
+**Conclusion :** le cron de rétention est actif en production. Ce n'est plus une
+déduction tirée des journaux.
+
+### 5.2 Le job a-t-il tiré ?
+
+```sql
+select start_time, status, return_message from cron.job_run_details
+ where jobid = (select jobid from cron.job where jobname='postync-youtube-retention')
+ order by start_time desc limit 10;
+```
+
+| start_time | status | return_message |
+|---|---|---|
+| 2026-09-10 04:17:00.079354+00 | succeeded | 1 row |
+| 2026-09-09 04:17:00.021226+00 | succeeded | 1 row |
+| 2026-09-08 04:17:00.044323+00 | succeeded | 1 row |
+
+**Conclusion, et elle est nouvelle : TROIS tirs seulement, le premier le
+2026-09-08.** L'activation en production se situe donc entre le 2026-09-07 —
+date de fusion de la PR #9 — et le 2026-09-08. **La toute première passe de
+production est celle qui a purgé un compte**, ce que le plan de livraison avait
+d'ailleurs anticipé : « Première passe chargée PAR CONSTRUCTION ».
+
+Rappel de lecture : `succeeded` signifie seulement que pg_net a mis la requête
+HTTP en file. C'est le §5.3 qui prouve que la route a répondu.
+
+### 5.3 Le journal se remplit-il ?
+
+```sql
+select ran_at, examined, refreshed, purged, retried, publications_purged,
+       batches, saturated, duration_ms, error_code
+  from retention_runs order by ran_at desc limit 14;
+```
+
+| ran_at | examined | refreshed | purged | retried | publications_purged | batches | saturated | duration_ms | error_code |
+|---|---|---|---|---|---|---|---|---|---|
+| 2026-09-10 04:17:00.994834+00 | 0 | 0 | 0 | 0 | 0 | 0 | false | 114 | NULL |
+| 2026-09-09 04:17:01.022886+00 | 0 | 0 | 0 | 0 | 0 | 0 | false | 165 | NULL |
+| 2026-09-08 04:17:00.541441+00 | **1** | 0 | **1** | 0 | 0 | 1 | false | 355 | NULL |
+
+**Conclusion :** trois tirs de cron, trois lignes de journal — aucune passe
+manquante, aucun `error_code`. La ligne du 09-08 concorde exactement avec le
+journal Vercel cité au §4.1 (`purges=1`). La table `retention_runs` existe donc
+en production et s'y remplit : la surveillance décrite au §3 y est applicable.
+
+### 5.4 Comptes sociaux restants
+
+```sql
+select platform, status, count(*) n, min(identity_refreshed_at) plus_ancienne,
+       sum(identity_refresh_failures) echecs
+  from social_accounts group by platform, status order by platform, status;
+```
+
+> `Success. No rows returned` — **0 ligne.**
+
+**Conclusion :** `social_accounts` est VIDE en production, tous réseaux
+confondus. Aucune donnée de plateforme n'y est conservée, donc aucune exposition
+au titre de III.E.4.c côté comptes. Cela explique les `examined=0` des 9 et 10
+septembre : après la purge du 8, il ne restait plus rien à examiner.
+
+### 5.5 Migrations appliquées
+
+```sql
+select version, name from supabase_migrations.schema_migrations
+ order by version desc limit 8;
+```
+
+| version | name |
+|---|---|
+| 20260904090000 | retention_runs |
+| 20260903150000 | publication_platform_data_at |
+| 20260903090000 | youtube_data_retention |
+| 20260902170000 | youtube_upload_metadata |
+| 20260828124521 | create_email_deliveries |
+| 20260828103511 | invitation_acceptance_survives_account_deletion |
+
+**Conclusion :** les trois migrations de rétention sont appliquées en
+production. La déduction faite depuis l'absence d'erreur de journal est
+confirmée.
+
+⚠️ **Dérive de schéma relevée au passage.** La base de STAGING porte une
+migration `20260905090000 publication_stats` qui n'existe **ni en production, ni
+dans le dépôt** (`supabase/migrations/` s'arrête à `20260904090000`). Une
+migration a donc été appliquée directement au staging sans fichier commité :
+une reconstruction depuis les migrations ne reproduirait pas le staging, et
+personne ne peut relire ce qu'elle a fait. À traiter séparément — sans rapport
+avec la rétention, mais à ne pas laisser dormir.
+
+### 5.6 Publications au-delà du plafond de 30 jours
+
+```sql
+select count(*) as a_purger from social_publications
+ where platform='youtube' and purged_at is null
+   and platform_data_at is not null
+   and platform_data_at < now() - interval '30 days';
+```
+
+| a_purger |
+|---|
+| **0** |
+
+**Conclusion — c'est le contrôle qui comptait.** Aucune publication ne conserve
+d'identifiant de chaîne, d'identifiant de vidéo, de permalien ou d'URI de
+session au-delà des 30 jours autorisés par III.E.4.c. La purge des publications
+fait son travail en production.
+
+### 5.7 Ce que ces preuves changent, et ce qu'elles ne changent pas
+
+**Établi :** le mécanisme fonctionne en production, il est journalisé, et
+l'état des données y est conforme.
+
+**Toujours ouvert :**
+
+* **la surveillance.** Ces six requêtes ont dû être lancées à la main pour
+  découvrir, deux jours après coup, qu'un compte avait été supprimé. Rien n'a
+  alerté personne. C'est le point faible du dossier, et il est inchangé ;
+* **qui a activé le job**, désormais borné au 7–8 septembre mais toujours sans
+  auteur identifiable — `cron.job_run_details` ne le conserve pas ;
+* **la saturation multi-lots**, qui reste couverte en simulation seulement.
