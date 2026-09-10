@@ -19,8 +19,16 @@ import { SocialIdentityUnavailableError, type SocialIdentity, type SocialProvide
  *     pour publier. La publication elle-même vit dans `youtube-publisher.ts` :
  *     ce module ne connaît que l'autorisation.
  *
- * Attention (officiel) : consent screen en statut « Testing » ⇒ refresh
- * tokens expirés au bout de 7 jours ; la reconnexion C8.1 couvre ce cas.
+ * EXPIRATION DES REFRESH TOKENS (officiel, revérifié le 2026-09-10). La règle
+ * des 7 jours ne vaut QUE pour un projet dont le statut de publication est
+ * « Testing » ET le type d'utilisateur externe. POSTYNC est « En production »
+ * depuis le 2026-09-01 : elle ne s'applique plus, et ce commentaire affirmait
+ * le contraire jusqu'ici.
+ *
+ * Un refresh token reste néanmoins révocable à tout moment — retrait de
+ * l'accès par la personne, changement de mot de passe, inactivité prolongée —
+ * et Google en limite le nombre à 100 par compte et par client OAuth, le plus
+ * ancien étant invalidé au-delà. La reconnexion C8.1 couvre toujours ces cas.
  */
 
 const AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";

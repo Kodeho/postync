@@ -41,12 +41,20 @@ export const metadata: Metadata = {
  *     TikTok a vérifié, et l'application est encore en Sandbox. Annoncer
  *     « TikTok » ici serait donc faux tant que ces deux verrous tiennent ;
  *   · YouTube publie réellement — une vidéo a été transférée et publiée en
- *     Production le 2026-09-01 — mais la chaîne reste fermée en amont, pour
- *     DEUX raisons vérifiables dans le code : l'écran de consentement Google
- *     est en statut « Testing », donc seuls des comptes de test déclarés
- *     peuvent se connecter (`youtube.ts`), et le projet n'étant pas audité,
- *     `privacyStatus` est forcé à `private` (`youtube-publisher.ts`). Une
- *     vidéo de client ne serait donc visible de personne.
+ *     Production le 2026-09-01 — et `privacyStatus` est transmis TEL QUEL,
+ *     mesure à l'appui (`youtube-publisher.ts`). Ce qui reste fermé en amont
+ *     n'est donc pas technique : les scopes `youtube.readonly` et
+ *     `youtube.upload` ne sont pas encore validés par Google. Tant qu'ils ne
+ *     le sont pas, le projet plafonne à 100 utilisateurs POUR SA DURÉE DE VIE
+ *     — ni réinitialisable ni modifiable — et chaque personne qui connecte sa
+ *     chaîne voit l'écran « Appli non validée ». Ouvrir la publication aux
+ *     clients dans ces conditions épuiserait ce plafond en pure perte.
+ *
+ *     Ce commentaire a porté deux affirmations fausses, retirées le
+ *     2026-09-10 : « l'écran de consentement est en statut Testing » (il est
+ *     en Production depuis le 2026-09-01) et « `privacyStatus` est forcé à
+ *     `private` » (démentie par la mesure du 2026-09-02). Voir
+ *     `docs/VALIDATION_GOOGLE_OAUTH.md`.
  *
  * Cette liste passe à `true` quand la publication marche VRAIMENT POUR UN
  * CLIENT, jamais quand le code est prêt. Un examinateur vérifie en trente
