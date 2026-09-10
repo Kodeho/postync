@@ -114,9 +114,23 @@ export function decideRetention(compte: RetentionAccount, maintenant: number): R
     return { action: "keep" };
   }
 
-  // `null` ne peut arriver que sur une ligne créée par du code antérieur à la
-  // migration : on se rabat sur la date de connexion, qui EST la date de
-  // lecture de l'identité.
+  // NE PAS RETIRER CE REPLI. Il a été décrit un temps comme une compatibilité
+  // avec « du code antérieur à la migration » : c'était faux, et dangereux à
+  // lire. `identity_refreshed_at` est NUL sur TOUT compte fraîchement connecté,
+  // parce que la colonne n'est renseignée qu'à la première relecture réussie —
+  // vérifié en base le 2026-09-10, le compte YouTube actif du staging la portait
+  // à `null`.
+  //
+  // Se rabattre sur `connected_at` est donc le chemin NORMAL, pas une
+  // survivance : c'est la date à laquelle l'identité a réellement été lue, par
+  // `callback.ts`, juste avant l'insertion. Supprimer ce repli ferait lire
+  // `Date.parse(undefined)` → `NaN` → `refresh`, donc un appel distant inutile
+  // à chaque passe pour chaque compte neuf ; et si l'on « corrigeait » ensuite
+  // le NaN vers une date nulle, tout compte neuf paraîtrait vieux de 56 ans et
+  // serait purgé au premier échec de relecture.
+  //
+  // Verrouillé par `tests/integration/youtube-retention-purge.test.ts`
+  // (« le compte fraîchement connecté (identité nulle) est CONSERVÉ »).
   const luLe = Date.parse(compte.identity_refreshed_at ?? compte.connected_at);
   if (Number.isNaN(luLe)) {
     // Date illisible : on relit plutôt que de deviner. Une relecture est sans

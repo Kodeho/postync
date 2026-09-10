@@ -189,6 +189,11 @@ export async function handleOAuthCallback(
     ? await vaultStore(db, tokens.refreshToken, `${prefix}/refresh`)
     : null;
 
+  // UN SEUL instant pour les deux colonnes : `connected_at` et
+  // `identity_refreshed_at` décrivent le même événement — l'identité vient
+  // d'être lue par `fetchIdentity`, quelques lignes plus haut.
+  const maintenant = new Date().toISOString();
+
   const row = {
     workspace_id: state.workspaceId,
     platform: deps.provider.platform,
@@ -203,7 +208,20 @@ export async function handleOAuthCallback(
     status: "active",
     status_detail: null,
     connected_by: user.id,
-    connected_at: new Date().toISOString(),
+    connected_at: maintenant,
+    // L'HORLOGE DE LA RÉTENTION, posée à l'ACQUISITION.
+    //
+    // Elle restait nulle jusqu'ici, et `decideRetention` s'en sortait par un
+    // repli sur `connected_at`. Le repli demeure — c'est un filet, pas un
+    // mécanisme — mais la colonne dit désormais ce que son nom annonce, et le
+    // plafond des 30 jours de III.E.4.c se lit dans une seule colonne plutôt
+    // que dans deux selon l'âge de la ligne.
+    //
+    // À la RECONNEXION aussi : `fetchIdentity` vient de réussir, donc le
+    // compteur des 30 jours repart, et les échecs accumulés par d'anciennes
+    // passes n'ont plus d'objet.
+    identity_refreshed_at: maintenant,
+    identity_refresh_failures: 0,
   };
 
   const { error: upsertError } = await db

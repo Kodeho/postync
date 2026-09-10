@@ -11,42 +11,37 @@ protègent pas la même chose et ne se franchissent pas dans le même ordre.
 
 Tant que la première n'est pas passée, la seconde n'a pas d'objet.
 
-## Écart ouvert : `privacyStatus` forcé à `private`
+## Visibilité : les trois choix sont offerts — écart RÉSOLU (PR #8)
 
-`youtube-publisher.ts` impose :
+Ce chapitre décrivait un « écart ouvert » : `privacyStatus` forcé à `private`
+par une constante de `youtube-publisher.ts`. **Ce n'est plus vrai depuis la
+PR #8** (`youtube-upload-metadata`), et le raisonnement qui le justifiait était
+lui-même faux.
 
-```ts
-/** Visibilité imposée tant que le projet n'est pas audité (voir en-tête). */
-const PRIVACY_STATUS = "private";
-```
+L'argument avancé était que « YouTube bascule silencieusement en privé une
+vidéo envoyée en `public` par un projet non audité ». **Mesure du 2026-09-02,
+projet `71307782821`, non audité** : un envoi demandant `public` a produit une
+vidéo RÉELLEMENT publique (`F8tUy20bY9s`), accessible sans session — oEmbed
+HTTP 200 —, là où deux vidéos envoyées en `private` répondaient 403. La
+documentation dit « restricted to », pas « rejected », et la restriction
+annoncée ne s'appliquait pas à ce projet.
 
-**Ce n'est pas une limitation subie, c'est un choix.** Un projet non audité qui
-envoie une vidéo en `public` ou `unlisted` ne reçoit pas une vidéo publique :
-YouTube la bascule silencieusement en privé. Le client croirait alors avoir
-publié, et découvrirait le contraire par un tiers. Forcer `private` côté serveur
-rend la contrainte **visible et honnête** — l'interface l'annonce d'ailleurs
-avant l'envoi : « La vidéo sera publiée en Privé sur YouTube ».
+Ce garde-fou supposé n'existait donc pas. Le documenter comme acquis était le
+plus coûteux des deux mensonges : il donnait l'illusion d'un filet.
 
-### Ce que la PR d'après devra faire
+### Ce qui est en place aujourd'hui
 
-Elle ne doit venir **qu'après** l'audit obtenu, et elle est plus large qu'un
-simple changement de constante :
+| Exigence (Required Minimum Functionality) | Où |
+|---|---|
+| « Users must be able to choose whether the uploaded video will be public, private, or unlisted » | `YOUTUBE_PRIVACY_STATUSES` dans `src/lib/youtube-metadata.ts`, rendu par `broadcast-form.tsx` |
+| La visibilité choisie est transmise TELLE QUELLE | `status.privacyStatus` dans `youtube-publisher.ts` — aucune réécriture |
+| Le choix survit à une reprise après interruption | colonne `privacy_status`, relue par `readStoredYouTubeMetadata` |
+| Déclaration made-for-kids, jamais de défaut applicatif | `parseYouTubeMetadata` refuse `null` (COPPA) |
+| Certification Community Guidelines horodatée | `guidelines_acknowledged_at` |
 
-1. Remplacer la constante par un **choix explicite de l'utilisateur** —
-   `public`, `unlisted` ou `private` — avec `private` par défaut.
-2. Persister ce choix sur la ligne de publication : une reprise après
-   interruption doit republier la **même** visibilité, jamais une valeur par
-   défaut. `createContainer` reçoit déjà `privacyLevel` dans son entrée.
-3. Retirer la mention « sera publiée en Privé » du formulaire, qui deviendrait
-   fausse, et la remplacer par le choix.
-4. Traiter `forbiddenPrivacySetting` — déjà mappé sur `privacy_rejected` dans
-   `CODES` — comme un refus explicite plutôt que comme une panne : c'est la
-   réponse de Google si l'audit n'est pas réellement acquis.
-5. Vérifier le comportement pour une chaîne **non vérifiée** : YouTube y limite
-   la visibilité indépendamment de notre audit, et l'utilisateur doit le savoir.
+`private` reste présélectionné dans le formulaire : c'est une commodité, pas une
+contrainte — l'imposer serait l'infraction.
 
-Tant que ces cinq points ne sont pas traités, `private` reste la seule valeur
-que le produit peut promettre sans mentir.
 
 ## Divulgations obligatoires — état
 
@@ -144,15 +139,26 @@ pied de page de chaque écran. Elles ne sont pas ajoutées au pied de page
 lui-même : y empiler des liens tiers le rendrait moins lisible sans rendre
 l'information plus accessible.
 
-## Blocage connu : l'acceptation n'est pas historisée
+## Acceptation des CGU : historisée — blocage RÉSOLU (PR #7)
 
-Le formulaire d'inscription annonce, **avant** le bouton d'envoi, que créer un
-compte vaut acceptation des CGU et de la politique. C'est une acceptation par
-l'acte, licite en droit français, et le texte est lisible avant l'engagement.
+Ce chapitre annonçait que « rien n'est enregistré : aucune case à cocher, aucune
+colonne `terms_accepted_at`, aucune trace de la version acceptée ». **C'est faux
+depuis la PR #7** (`feat/legal-acceptance`).
 
-Mais **rien n'est enregistré** : aucune case à cocher, aucune colonne
-`terms_accepted_at`, aucune trace de la version acceptée. En cas de litige, ou
-si un examinateur demande la preuve du consentement, il n'y a rien à produire.
+Ce qui existe aujourd'hui :
 
-Ce n'est pas corrigé ici : cela demande une migration et une modification du
-parcours d'inscription, hors du périmètre d'une PR de conformité documentaire.
+* table `legal_acceptances` — migration
+  `supabase/migrations/20260901140000_create_legal_acceptances.sql`, avec
+  `20260901150000_revoke_delete_on_legal_acceptances.sql` qui interdit la
+  suppression : une acceptation ne s'efface pas ;
+* `src/server/legal/acceptance.ts` — enregistrement du couple de versions
+  réellement accepté ;
+* `src/config/legal.ts` — `TERMS_VERSION` et `PRIVACY_VERSION` (`2026-09-01`),
+  source unique. **Changer l'une redemande l'acceptation à tout le monde** : une
+  acceptation ne vaut que pour la version acceptée, et la garde compare le
+  couple enregistré au couple courant ;
+* `src/app/legal/accept/page.tsx` — le parcours qui la recueille.
+
+En cas de litige ou de demande d'un examinateur, la preuve est produisible :
+qui, quand, et quelles versions.
+

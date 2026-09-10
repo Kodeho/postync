@@ -1,10 +1,31 @@
 # Dossier de validation — PR #9 : rétention et révocation des données YouTube
 
-État au 2026-09-03. PR #9 **non fusionnée**, branche `feat/youtube-data-retention`
-au SHA `0aa9dc8`. Job pg_cron `postync-youtube-retention` **désactivé** partout
-(créé `active := false` par la migration `20260903090000`). Aucun secret dans ce
-dossier — les vérifications qui en manipulent le font en mémoire de processus,
-avec diagnostic par booléens uniquement.
+> ## ⚠️ Ce document a décrit un état faux pendant une semaine
+>
+> Rédigé le 2026-09-03, il annonçait « PR #9 non fusionnée » et « job pg_cron
+> désactivé partout ». **Les deux étaient fausses dès le 2026-09-05.** Corrigé
+> le 2026-09-10 sur mesures, et non sur souvenir. Les sections ci-dessous
+> portent la date de ce qui a été réellement observé.
+>
+> Ce n'est pas un détail d'archivage : c'est ce document qu'un auditeur YouTube
+> lirait, et l'écart entre ce qu'il affirmait et ce que faisait le système
+> portait sur un mécanisme **destructif**, déjà actif en production.
+
+État au 2026-09-10. PR #9 **fusionnée** (`0322281`, merge du 2026-09-07). Job
+pg_cron `postync-youtube-retention` **ACTIF sur les deux environnements**,
+cadence `17 4 * * *`. Aucun secret dans ce dossier — les vérifications qui en
+manipulent le font en mémoire de processus, avec diagnostic par booléens
+uniquement.
+
+### État mesuré le 2026-09-10
+
+| | Staging (`illwldvbunnsublcoewg`) | Production |
+|---|---|---|
+| Migrations `…090000`, `…150000`, `…090000` | ✅ appliquées | à confirmer par SELECT |
+| Job `postync-youtube-retention` | **actif**, `17 4 * * *` | **actif** (déduit des journaux) |
+| Passes observées | 6 `succeeded`, 09-05 → 09-10 | quotidiennes, dont 09-08 et 09-10 |
+| Journal `retention_runs` | 7 lignes, toutes propres | s'écrit (aucune erreur de journal) |
+| Purge réelle | aucune (rien d'éligible) | **1 le 2026-09-08** |
 
 ---
 
@@ -78,12 +99,14 @@ test manuel et dans la revue du 2026-09-03.
 | Rotation des jetons + bascule de statut (vraie base, vrai Vault) | — | ✅ `tests/integration/token-refresh.test.ts` (12 cas, provider simulé) | l'échange Google lui-même est simulé |
 | Échange RÉEL du refresh token chez Google + relecture `channels.list` | ✅ 2026-09-03 (§1.3) | — | modules de production, compte réel |
 | Journal `retention_runs` : n'échoue jamais, codes contrôlés | — | ✅ `retention-journal.test.ts` | l'insert réel s'éprouve au plan §4, étape 3 |
-| Détection réelle d'une révocation (`invalid_grant` vécu) | ❌ | partiellement (signal simulé) | exigerait une révocation Google — non prévue |
-| Purge `disconnect_social_account` déclenchée par la passe | ❌ | ✅ (flow test) | volontairement exclue des essais réels |
-| Purge des publications ≥ 30 j (`purgeStalePublications`) | ❌ | ✅ (flow test) | le cas réel exigerait des dates anciennes authentiques |
-| Route `/api/cron/retention` (secret partagé, 401/503, rapport) | ❌ | partiellement (`use-server-exports`, revue) | à éprouver au plan §4, étape 2 |
-| Chaîne pg_cron → pg_net → route | ❌ | — | ne s'éprouve qu'en activant le job (staging d'abord) |
-| Saturation multi-lots réelle (budget, `sature=true`) | ❌ | ✅ (flow test) | improbable à petite échelle |
+| Détection réelle d'une révocation (`invalid_grant` vécu) | ✅ **2026-09-08, production** | partiellement (signal simulé) | journal Vercel : `google refresh: HTTP 400 invalid_grant` |
+| Purge `disconnect_social_account` déclenchée par la passe | ✅ **2026-09-08, production** + ✅ staging sur fixtures | ✅ flow test + intégration | `purges=1` dans le rapport de passe |
+| Purge des publications ≥ 30 j (`purgeStalePublications`) | ✅ staging, données de test | ✅ flow test + intégration | `youtube-retention-purge.test.ts` |
+| Publication EN VOL épargnée (`container_id` intact) | ✅ staging, données de test | ✅ intégration | le cas qui éviterait une seconde vidéo |
+| Compte neuf (`identity_refreshed_at` nul) conservé | ✅ staging, données de test | ✅ intégration | verrouille le repli sur `connected_at` |
+| Route `/api/cron/retention` (401/503, rapport, journal) | ✅ chemin autorisé, quotidien | ✅ `cron-retention-route.test.ts` (7 cas) | refus et longueurs inégales couverts |
+| Chaîne pg_cron → pg_net → route | ✅ **staging, 6 jours** | — | pg_cron 04:17:00 → journal 04:17:02 |
+| Saturation multi-lots réelle (budget, `sature=true`) | ❌ | ✅ (flow test) | improbable à petite échelle ; reste couverte en simulation |
 
 ---
 
@@ -93,7 +116,8 @@ Signal retenu : **un journal en base, durable et consultable en SQL** — la
 réponse JSON rendue à pg_net s'évapore avec `net._http_response`, et la ligne
 `[cron:retention]` suit la rétention courte des logs Vercel.
 
-Préparé (non appliqué, non commité) :
+Appliqué et fusionné depuis le 2026-09-07 (`0322281`) — la formule « préparé,
+non appliqué, non commité » qui figurait ici était périmée :
 
 * migration `supabase/migrations/20260904090000_retention_runs.sql` — table
   `retention_runs`, une ligne par invocation, service_role uniquement, RLS
@@ -165,60 +189,73 @@ attend le domaine définitif : suite distincte, à ouvrir après la livraison.
 
 ---
 
-## 4. Plan de livraison Production — chaque étape derrière une autorisation
+## 4. Livraison — constat, et non plus plan
 
-Rien ne s'exécute sans accord explicite. **Les migrations précèdent la
-fusion** : le code fusionné lit `platform_data_at` et écrit `retention_runs` —
-le déployer sur une base qui ne les porte pas casserait la passe et le
-planificateur au premier réveil. L'inverse est sans danger : ces migrations
-sont additives (colonnes et table nouvelles, job créé DÉSACTIVÉ) et inertes
-pour le code actuellement en production.
+Ce chapitre était un plan en sept étapes, chacune « derrière une autorisation ».
+Il est remplacé par ce qui a été **mesuré le 2026-09-10**, parce qu'un plan qui
+décrit un futur déjà advenu n'informe personne.
 
-1. ~~Essais réels staging~~ — **fait** (§1.3).
-2. **Commit de la surveillance** sur la branche (module journal, route,
-   migration, tests) après revue.
-3. **Staging — migration + contrôle de la route** : appliquer
-   `20260904090000_retention_runs` au staging ; déployer la branche ; UNE
-   invocation manuelle de `POST /api/cron/retention` avec le secret.
-   Attention : c'est la passe COMPLÈTE — inventorier d'abord les comptes
-   staging purgeables (`revoked`, ou > 30 j en échec). Critères : HTTP 200,
-   ligne `retention_runs` cohérente avec la réponse JSON, `saturated=false`.
-4. **Staging — cron** (autorisation distincte) : activer
-   `postync-youtube-retention`. Durée d'observation dimensionnée par ce
-   qu'elle vérifie, pas par un délai rituel — la passe étant quotidienne :
-   * passe n° 1 déclenchée par pg_cron : prouve la chaîne
-     pg_cron → pg_net → route → journal, jamais éprouvée ailleurs ;
-   * passe n° 2, le lendemain : vérifie le comportement jour-après-jour SUR
-     CES COMPTES-LÀ — `examined` stable, `refreshed ≈ 0` (identités relues la
-     veille), zéro purge inattendue. C'est un contrôle de non-régression en
-     réel, pas une preuve d'idempotence générale : celle-ci reste établie par
-     les tests automatisés (§2), qu'aucun nombre de passes observées ne
-     remplacerait.
-   Deux passes consécutives propres suffisent donc pour ce que l'observation
-   peut prouver ; au-delà, c'est la consultation de surveillance (§3, avec son
-   responsable et son rythme) qui prend le relais, pas l'attente.
-5. **Production — migrations, AVANT fusion** (autorisation) :
-   `20260903090000`, `20260903150000`, `20260904090000`. Vérifier ensuite :
-   colonnes présentes, `retention_runs` vide, `cron.job` porte le job
-   INACTIF, aucun comportement nouveau (le code en production ignore tout de
-   ces objets).
-6. **Fusion de la PR #9** (autorisation), puis **contrôle du déploiement**
-   Production : build Ready, SHA fusionné effectivement servi par
-   `app.postync.app` (mêmes recoupements qu'au §1.1 : `dpl_` embarqué,
-   source), route `/api/cron/retention` → 401 sans secret, `retention_runs`
-   toujours vide, job toujours inactif.
-7. **Production — activation du cron** (autorisation séparée) :
-   `cron.alter_job(..., active := true)`. Première passe chargée PAR
-   CONSTRUCTION : tous les comptes YouTube plus vieux que 7 jours sont relus
-   (un échange + un `channels.list` chacun — quota Google à surveiller).
-   Contrôle à J+1 (première passe : compteurs, échecs par compte), puis les
-   requêtes du §3 comme geste court quotidien la première semaine,
-   hebdomadaire ensuite.
-   **Retour arrière** : tout signal anormal (purges inattendues, saturation,
-   `error_code`, passe manquante) ⇒ DÉSACTIVER LE JOB D'ABORD (une commande,
-   sans déploiement), analyser ensuite ; le code se retire par Instant
-   Rollback Vercel. Les purges sont irréversibles — c'est la raison de
-   l'ordre « couper puis comprendre ».
+| Étape prévue | État réel |
+|---|---|
+| 1. Essais réels staging | ✅ 2026-09-03 (§1.3) |
+| 2. Commit de la surveillance | ✅ fusionné le 2026-09-07 (`0322281`) |
+| 3. Staging — migration + invocation manuelle | ✅ migrations appliquées ; une invocation le 2026-09-04 à 11:19 UTC |
+| 4. Staging — activation du cron | ✅ actif ; première passe automatique le 2026-09-05 |
+| 5. Production — migrations | ✅ (déduit : la passe y écrit son journal sans erreur) |
+| 6. Fusion de la PR #9 | ✅ 2026-09-07 |
+| 7. **Production — activation du cron** | ✅ **effectuée, sans autorisation tracée** |
 
-Interdits reconduits jusqu'à autorisation : aucune migration distante, aucune
-fusion, aucune activation de cron.
+L'étape 7 exigeait « une autorisation séparée ». Rien dans ce dossier, dans
+l'historique Git ou dans les journaux ne conserve la trace de cette décision.
+`cron.job_run_details` n'enregistre pas l'auteur d'un `alter_job`. **La question
+« qui a activé le job de production, et quand » restera donc sans réponse**, et
+il vaut mieux l'écrire que l'inventer.
+
+### 4.1 Incident du 2026-09-08 — une purge réelle, passée inaperçue
+
+Journal Vercel du projet `postync` (production), 04:17:00 UTC :
+
+```
+POST /api/cron/retention 200
+[social:token] youtube refresh: google refresh: HTTP 400 invalid_grant
+[retention] lots=1 examines=1 rafraichis=0 purges=1 reessais=0 publications=0 sature=false
+[cron:retention] examines=1 rafraichis=0 purges=1 reessais=0 publications=0
+```
+
+Lecture : un compte YouTube de production a vu son refresh token refusé par
+Google avec `invalid_grant` — le signal documenté d'une autorisation retirée.
+`decideAfterFailure` l'a classé `auth_revoked`, `disconnect_social_account` a
+purgé le compte et les données de plateforme de ses publications. La passe du
+2026-09-10 rapporte `examines=0` : il ne reste aucun compte YouTube en
+production.
+
+**Le mécanisme a fait exactement ce que les Developer Policies exigent.** C'est
+la meilleure preuve de conformité dont dispose ce dossier, et elle est
+involontaire.
+
+Ce qui doit être retenu, en revanche, est que **personne ne l'a su.** Ni
+l'activation du job, ni la suppression d'un compte utilisateur n'ont produit le
+moindre signal reçu par un humain. Il a fallu lire les journaux Vercel une
+semaine plus tard, en préparant l'audit, pour les découvrir. C'est l'argument
+qui justifie la surveillance du §3 — et sa faiblesse actuelle.
+
+### 4.2 Retour arrière
+
+Inchangé, et toujours valable : tout signal anormal (purges inattendues,
+saturation, `error_code`, passe manquante) ⇒ **désactiver le job d'abord**,
+analyser ensuite.
+
+```sql
+select cron.alter_job(
+  (select jobid from cron.job where jobname = 'postync-youtube-retention'),
+  active := false);
+```
+
+Une commande, aucun déploiement. Le code se retire par Instant Rollback Vercel.
+**Les purges sont irréversibles** — c'est la raison de l'ordre « couper puis
+comprendre ».
+
+⚠️ Contrepartie à connaître avant de couper : le job éteint, POSTYNC cesse de
+reconfirmer les jetons et de purger les données au-delà de 30 jours, donc sort
+de la conformité III.D.2 / III.E.4.c. Une coupure est un geste d'urgence, pas
+un état de repos — elle se documente et se referme.
