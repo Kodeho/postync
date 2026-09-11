@@ -1,6 +1,5 @@
-import Link from "next/link";
 
-import { PRODUCT_NAME } from "@/config/product";
+import { BrandLogo } from "@/components/ui/brand-logo";
 import type { WorkspaceContext } from "@/features/workspaces/context";
 import { userLabel } from "@/features/workspaces/context";
 import { workspaceHref } from "@/features/workspaces/navigation";
@@ -22,12 +21,9 @@ export function Sidebar({ ctx }: SidebarProps) {
 
   return (
     <div className="flex h-full flex-col gap-5 p-4">
-      <Link
-        href={workspaceHref(slug)}
-        className="flex h-9 items-center px-1 text-base font-semibold tracking-tight text-foreground"
-      >
-        {PRODUCT_NAME}
-      </Link>
+      <div className="flex h-9 items-center px-1">
+        <BrandLogo size="md" href={workspaceHref(slug)} />
+      </div>
 
       <WorkspaceSwitcher active={ctx.active} memberships={ctx.memberships} />
 

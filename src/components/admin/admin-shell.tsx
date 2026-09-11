@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 
 import { MobileNav } from "@/components/shell/mobile-nav";
 import { Avatar } from "@/components/ui/avatar";
-import { PRODUCT_NAME } from "@/config/product";
+import { BrandLogo } from "@/components/ui/brand-logo";
 import { signOutAction } from "@/features/auth/actions";
 import type { AdminActor } from "@/server/admin/authorization";
 import { can } from "@/server/admin/permissions";
@@ -58,8 +58,8 @@ function AdminSidebar({ actor }: { actor: AdminActor }) {
   return (
     <div className="flex h-full flex-col gap-5 p-4">
       <Link href="/admin" className="flex flex-col px-1 leading-tight">
-        <span className="text-base font-semibold tracking-tight text-foreground">
-          {PRODUCT_NAME}{" "}
+        <span className="inline-flex items-center gap-2">
+          <BrandLogo size="md" />
           <span className="rounded-sm bg-foreground px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-surface">
             Admin
           </span>

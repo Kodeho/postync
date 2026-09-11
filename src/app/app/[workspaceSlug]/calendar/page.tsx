@@ -1,3 +1,4 @@
+import { SocialIcon } from "@/components/ui/social-icon";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { connection } from "next/server";
@@ -201,8 +202,14 @@ function EntreeCalendrier({
   const contenu = (
     <div className="rounded border border-border bg-surface p-1.5">
       <div className="flex items-center justify-between gap-1">
-        <span className="truncate text-[11px] font-medium text-foreground">
-          {heure(entree.occursAt, timeZone)} · {PLATFORM_LABELS[entree.platform]}
+        <span className="flex min-w-0 items-center gap-1 text-[11px] font-medium text-foreground">
+          {/* Plus petit qu'ailleurs : la cellule de calendrier est dense et le
+              texte y est en 11 px. La taille reste identique sur TOUTES les
+              lignes du calendrier, ce qui est la cohérence qui compte ici. */}
+          <SocialIcon platform={entree.platform} className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate">
+            {heure(entree.occursAt, timeZone)} · {PLATFORM_LABELS[entree.platform]}
+          </span>
         </span>
         <Badge tone={TONS[entree.status]}>{PUBLICATION_STATUS_LABELS[entree.status]}</Badge>
       </div>

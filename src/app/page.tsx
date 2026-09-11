@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { PublicFooter } from "@/components/layout/public-footer";
+import { BrandLogo } from "@/components/ui/brand-logo";
 import { PRODUCT_NAME, PRODUCT_TAGLINE } from "@/config/product";
 import { PLANS, formatPlanPrice } from "@/config/plans";
 
@@ -106,9 +107,7 @@ export default function Home() {
     <>
       <header className="border-b border-border px-6 py-4">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4">
-          <span className="text-lg font-semibold tracking-tight text-foreground">
-            {PRODUCT_NAME}
-          </span>
+          <BrandLogo size="md" />
           <nav aria-label="Accès au compte" className="flex items-center gap-4 text-sm">
             <Link href="/login" className="text-muted underline-offset-4 hover:underline">
               Se connecter

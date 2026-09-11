@@ -1,6 +1,5 @@
-import Link from "next/link";
-
-import { PRODUCT_NAME, PRODUCT_TAGLINE } from "@/config/product";
+import { BrandLogo } from "@/components/ui/brand-logo";
+import { PRODUCT_TAGLINE } from "@/config/product";
 
 import { PublicFooter } from "./public-footer";
 
@@ -16,12 +15,7 @@ export function AuthShell({ title, children }: AuthShellProps) {
       <main className="flex flex-1 items-center justify-center p-6">
         <div className="w-full max-w-sm">
           <div className="mb-8 text-center">
-            <Link
-              href="/"
-              className="text-2xl font-semibold tracking-tight text-foreground hover:opacity-80"
-            >
-              {PRODUCT_NAME}
-            </Link>
+            <BrandLogo size="lg" href="/" />
             <p className="mt-1 text-sm text-muted">{PRODUCT_TAGLINE}</p>
           </div>
 

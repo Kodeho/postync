@@ -1,10 +1,15 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { useFormStatus } from "react-dom";
 
+import { buttonClasses } from "@/components/ui/button";
+import { BusyOverlay } from "@/components/ui/busy-overlay";
 import { FormAlert } from "@/components/ui/form-alert";
+import { SocialIcon } from "@/components/ui/social-icon";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { instantToWallClock, wallClockToInstant } from "@/lib/time-zone";
+import type { SocialPlatform } from "@/types/platform";
 import {
   YOUTUBE_PRIVACY_STATUSES,
   YOUTUBE_TITLE_MAX_LENGTH,
@@ -364,8 +369,19 @@ export function BroadcastForm({
                       onChange={() => basculer(compte.id)}
                     />
                     <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-medium text-foreground">
-                        {compte.platformLabel} · {compte.label}
+                      <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                        {/*
+                          Décorative : le libellé texte qui suit nomme déjà le
+                          réseau. L'annoncer aussi ferait entendre « YouTube »
+                          deux fois.
+                        */}
+                        <SocialIcon
+                          platform={compte.platform as SocialPlatform}
+                          className="h-4 w-4 shrink-0"
+                        />
+                        <span className="truncate">
+                          {compte.platformLabel} · {compte.label}
+                        </span>
                       </span>
                       {/* Dire POURQUOI, plutôt que de griser sans explication. */}
                       {etat.reason ? (
@@ -441,7 +457,7 @@ export function BroadcastForm({
                         ? "Certifiez le respect des Community Guidelines"
                         : `Il ne reste que ${remainingThisMonth} publication(s) ce mois-ci`
             }
-            className="inline-flex h-10 cursor-not-allowed items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground opacity-60"
+            className={buttonClasses("primary", "md", "cursor-not-allowed opacity-45")}
           >
             {quand === "plus-tard" ? "Programmer" : "Publier"}
           </button>
@@ -466,7 +482,48 @@ export function BroadcastForm({
       {state.results ? (
         <ResultatsParReseau results={state.results} accounts={accounts} />
       ) : null}
+
+      <SurcouchePublication quand={quand} />
     </form>
+  );
+}
+
+/**
+ * Surcouche bloquante pendant l'envoi du formulaire.
+ *
+ * PROGRESSION INDÉTERMINÉE, DÉLIBÉRÉMENT. La publication part en UNE action
+ * serveur : le navigateur envoie le formulaire et attend la réponse. Il
+ * n'observe ni l'ouverture de la session d'envoi, ni le transfert vers la
+ * plateforme, ni son traitement — tout cela se passe côté serveur, hors de sa
+ * vue. Découper l'attente en « préparation / téléversement / traitement /
+ * finalisation » produirait quatre étapes inventées avançant sur une horloge
+ * plutôt que sur des faits. C'est exactement la progression fictive qu'il faut
+ * refuser : elle rassure à tort, puis ment quand l'envoi dure.
+ *
+ * Ce qu'on sait, on le dit ; le reste, on ne le simule pas.
+ *
+ * AUCUNE ANNULATION NON PLUS. Une fois l'action partie, rien côté navigateur ne
+ * peut la défaire : le serveur peut avoir ouvert une session d'envoi résumable,
+ * voire publié. Un bouton « Annuler » ici ne ferait que masquer la surcouche en
+ * laissant le traitement courir — pire que pas de bouton du tout.
+ *
+ * `useFormStatus` doit être lu dans un DESCENDANT du `<form>` : d'où ce
+ * composant séparé plutôt qu'un état remonté dans le formulaire.
+ */
+function SurcouchePublication({ quand }: { quand: "maintenant" | "plus-tard" }) {
+  const { pending } = useFormStatus();
+  const programme = quand === "plus-tard";
+
+  return (
+    <BusyOverlay
+      open={pending}
+      title={programme ? "Enregistrement de la programmation" : "Publication en cours"}
+      stepLabel={
+        programme
+          ? "Enregistrement de votre programmation…"
+          : "Envoi vers vos réseaux…"
+      }
+    />
   );
 }
 

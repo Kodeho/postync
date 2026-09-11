@@ -1,6 +1,5 @@
-import Link from "next/link";
 
-import { PRODUCT_NAME } from "@/config/product";
+import { BrandLogo } from "@/components/ui/brand-logo";
 import { LEGAL_LAST_UPDATED, missingLegalFields } from "@/config/legal";
 
 import { PublicFooter } from "./public-footer";
@@ -28,12 +27,7 @@ export function LegalPage({
   return (
     <div className="flex min-h-full flex-1 flex-col">
       <header className="border-b border-border px-6 py-4">
-        <Link
-          href="/"
-          className="text-lg font-semibold tracking-tight text-foreground hover:opacity-80"
-        >
-          {PRODUCT_NAME}
-        </Link>
+        <BrandLogo size="md" href="/" />
       </header>
 
       <main className="flex-1 px-6 py-10">
