@@ -8,8 +8,16 @@
 
 export type UploadTicketState = {
   error: string | null;
-  /** Délivré par le serveur : où et quoi téléverser. */
-  ticket: { assetId: string; uploadUrl: string } | null;
+  /**
+   * Délivré par le serveur : où et quoi téléverser.
+   *
+   * `storagePath` accompagne l'URL signée parce que le transport REPRENABLE
+   * n'utilise pas d'URL signée — il désigne l'objet par son chemin, que seul
+   * le serveur a le droit de choisir. Le chemin n'est pas un secret : la
+   * politique `media_resumable_insert` borne de toute façon l'écriture au
+   * dossier du workspace de l'utilisateur.
+   */
+  ticket: { assetId: string; storagePath: string; uploadUrl: string } | null;
 };
 
 export const IDLE_UPLOAD_TICKET: UploadTicketState = { error: null, ticket: null };

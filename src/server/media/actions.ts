@@ -111,7 +111,11 @@ export async function requestUploadAction(
   }
   return {
     error: null,
-    ticket: { assetId: result.assetId, uploadUrl: result.uploadUrl },
+    ticket: {
+      assetId: result.assetId,
+      storagePath: result.storagePath,
+      uploadUrl: result.uploadUrl,
+    },
   };
 }
 

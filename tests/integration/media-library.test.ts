@@ -137,15 +137,104 @@ describe.skipIf(!CONFIGURED)("C9 — médiathèque (bucket et base réels)", () 
     expect(types).toContain("video/mp4");
     expect(types).not.toContain("image/png");
 
-    // Un utilisateur légitime ne peut ni lister, ni téléverser directement :
-    // aucune politique n'ouvre `storage.objects` sur ce bucket.
+    // LECTURE : toujours fermée. Aucune politique `select` n'existe, donc ni
+    // listage ni téléchargement direct — les aperçus et les URL remises aux
+    // plateformes restent signés par le serveur, à durée courte.
     const liste = await clients.owner.storage.from("media").list(workspaceId);
     expect((liste.data ?? []).length).toBe(0);
+  });
 
+  // -------------------------------------------------------------------------
+  // Écriture directe : ouverte, mais STRICTEMENT bornée
+  // -------------------------------------------------------------------------
+  //
+  // Ce bloc a remplacé une assertion devenue fausse — et c'est un changement
+  // qu'il faut lire, pas subir. Jusqu'au téléversement reprenable, AUCUNE
+  // politique n'ouvrait `storage.objects` : le serveur signait tout en
+  // `service_role`. Le protocole TUS de Supabase n'accepte pas d'URL signée ;
+  // il s'authentifie avec le JWT de l'utilisateur et passe donc par RLS.
+  // Ouvrir `insert` était la condition pour que les grosses vidéos soient
+  // reprenables (migration 20260911120000).
+  //
+  // La contrepartie doit être mesurée, pas supposée : ce qui suit vérifie que
+  // l'ouverture se limite au dossier du workspace de l'utilisateur, pour les
+  // seuls rôles qui gèrent la médiathèque, sans lecture ni écrasement.
+
+  it("un owner PEUT déposer dans le dossier de SON workspace — c'est ce que TUS exige", async () => {
+    const chemin = `${workspaceId}/${randomUUID()}.mp4`;
     const depot = await clients.owner.storage
       .from("media")
-      .upload(`${workspaceId}/intrus.mp4`, OCTETS, { contentType: "video/mp4" });
+      .upload(chemin, OCTETS, { contentType: "video/mp4" });
+    expect(depot.error).toBeNull();
+    // Déposé par l'utilisateur, donc retiré par le service : le test ne laisse
+    // pas d'objet derrière lui.
+    await admin.storage.from("media").remove([chemin]);
+  });
+
+  it("il ne peut PAS déposer dans le dossier d'un AUTRE workspace", async () => {
+    const depot = await clients.owner.storage
+      .from("media")
+      .upload(`${otherWorkspaceId}/${randomUUID()}.mp4`, OCTETS, {
+        contentType: "video/mp4",
+      });
     expect(depot.error).not.toBeNull();
+  });
+
+  it("un étranger au workspace ne peut rien y déposer", async () => {
+    const depot = await clients.outsider.storage
+      .from("media")
+      .upload(`${workspaceId}/${randomUUID()}.mp4`, OCTETS, {
+        contentType: "video/mp4",
+      });
+    expect(depot.error).not.toBeNull();
+  });
+
+  it("aucun dépôt à la racine ni dans une arborescence libre", async () => {
+    // La politique exige EXACTEMENT un dossier : `<workspace_id>/<objet>`.
+    const racine = await clients.owner.storage
+      .from("media")
+      .upload(`${randomUUID()}.mp4`, OCTETS, { contentType: "video/mp4" });
+    expect(racine.error).not.toBeNull();
+
+    const imbrique = await clients.owner.storage
+      .from("media")
+      .upload(`${workspaceId}/sous/dossier.mp4`, OCTETS, { contentType: "video/mp4" });
+    expect(imbrique.error).not.toBeNull();
+  });
+
+  it("un objet existant ne peut pas être ÉCRASÉ : pas de politique update", async () => {
+    // Sans `select` ni `update`, `upsert` ne peut pas aboutir. C'est ce qui
+    // empêche de remplacer discrètement le média d'une publication déjà parue.
+    const chemin = `${workspaceId}/${randomUUID()}.mp4`;
+    const premier = await clients.owner.storage
+      .from("media")
+      .upload(chemin, OCTETS, { contentType: "video/mp4" });
+    expect(premier.error).toBeNull();
+
+    const ecrasement = await clients.owner.storage
+      .from("media")
+      .upload(chemin, OCTETS, { contentType: "video/mp4", upsert: true });
+    expect(ecrasement.error).not.toBeNull();
+
+    await admin.storage.from("media").remove([chemin]);
+  });
+
+  it("un utilisateur ne peut pas SUPPRIMER un objet : aucune politique delete", async () => {
+    const chemin = `${workspaceId}/${randomUUID()}.mp4`;
+    const depot = await clients.owner.storage
+      .from("media")
+      .upload(chemin, OCTETS, { contentType: "video/mp4" });
+    expect(depot.error).toBeNull();
+
+    // `remove` ne lève pas : sans politique `select`, la ligne est invisible,
+    // donc rien n'est supprimé. On le constate sur l'objet, pas sur l'erreur.
+    await clients.owner.storage.from("media").remove([chemin]);
+    const { data: apres } = await admin.storage
+      .from("media")
+      .createSignedUrl(chemin, 60);
+    expect(apres?.signedUrl).toBeTruthy();
+
+    await admin.storage.from("media").remove([chemin]);
   });
 
   // -------------------------------------------------------------------------
