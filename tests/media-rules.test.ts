@@ -111,6 +111,74 @@ describe("Reel Facebook — le plus strict", () => {
   });
 });
 
+/**
+ * La frontière des 90 secondes, éprouvée des deux côtés.
+ *
+ * Ce bloc existe à cause d'une confusion coûteuse : Meta a annoncé le
+ * 17 juin 2025 que les vidéos Facebook deviendraient toutes des Reels
+ * « without any length or format restrictions ». L'annonce porte sur
+ * l'APPLICATION. L'endpoint `POST /<PAGE_ID>/video_reels` que POSTYNC utilise
+ * en Graph v25.0 documente toujours « 3 to 90 seconds » (relu le 2026-09-11).
+ *
+ * Tant que les deux ne concordent pas, la frontière doit être verrouillée au
+ * seconde près : la relever sur la foi d'un communiqué ferait échouer la
+ * publication chez Meta, trop tard pour l'utilisateur.
+ */
+describe("Reel Facebook — la frontière des 90 secondes", () => {
+  const duree = (secondes: number) =>
+    checkMediaForPlatform(
+      media({ duration_seconds: secondes }),
+      "facebook",
+      "reel",
+      "Facebook",
+    ).map((v) => v.code);
+
+  it("89 s passe", () => {
+    expect(duree(89)).toEqual([]);
+  });
+
+  it("90 s passe — la borne est INCLUSE", () => {
+    // `> maxDuration`, pas `>=` : une vidéo d'exactement 90 s est acceptée par
+    // l'endpoint, la refuser inventerait une contrainte.
+    expect(duree(90)).toEqual([]);
+  });
+
+  it("91 s est refusée", () => {
+    expect(duree(91)).toEqual(["too_long"]);
+  });
+
+  it("100 s est refusée", () => {
+    expect(duree(100)).toEqual(["too_long"]);
+  });
+
+  it("2 minutes sont refusées", () => {
+    expect(duree(120)).toEqual(["too_long"]);
+  });
+
+  it("le refus NOMME l'endpoint, au lieu d'accuser Facebook en bloc", () => {
+    // Sans cette précision, l'utilisateur qui vient de publier 3 minutes
+    // depuis l'application Facebook conclut que POSTYNC raconte n'importe
+    // quoi — et il aurait raison de le penser.
+    const [violation] = checkMediaForPlatform(
+      media({ duration_seconds: 120 }),
+      "facebook",
+      "reel",
+      "Facebook",
+    );
+    expect(violation.code).toBe("too_long");
+    expect(violation.message).toContain("90 secondes");
+    expect(violation.message).toContain("/video_reels");
+    expect(violation.message).toContain("v25.0");
+    expect(violation.message).toContain("l'application Facebook");
+  });
+
+  it("la durée est affichée en secondes, pas arrondie en minutes", () => {
+    // « pas plus de 2 min » rendrait incompréhensible le refus d'une vidéo de
+    // 100 secondes.
+    expect(formatDuration(90)).toBe("90 secondes");
+  });
+});
+
 describe("Reel Instagram — beaucoup plus permissif", () => {
   it("le même clip 16:9 est accepté", () => {
     expect(

@@ -5,12 +5,19 @@ import type { SocialPlatform } from "@/types/platform";
  *
  * Ce fichier est la mémoire de ce que C8 a coûté à découvrir : les
  * plateformes n'ont PAS les mêmes exigences, et s'en apercevoir au moment de
- * publier est trop tard. Un Reel Facebook impose le 9:16 et 90 secondes là où
- * Instagram accepte presque tout ratio jusqu'à 15 minutes — le clip 16:9 qui
- * est passé sur Instagram aurait été refusé par Facebook.
+ * publier est trop tard. L'endpoint Reels de Facebook impose le 9:16 et
+ * 90 secondes là où Instagram accepte presque tout ratio jusqu'à 15 minutes —
+ * le clip 16:9 qui est passé sur Instagram aurait été refusé par Facebook.
  *
- * Toutes les valeurs viennent de la documentation officielle vérifiée en
- * C8.4 (developers.facebook.com, 2026-08-27).
+ * CHAQUE LIMITE NOMME SA SOURCE. Une constante nue devient indéfendable le
+ * jour où la plateforme communique : on ne sait plus si elle est périmée ou
+ * si elle décrit une contrainte d'API que l'annonce ne touche pas. Les blocs
+ * ci-dessous portent donc l'endpoint, la version et la date de relecture —
+ * voir le cas Facebook, où une annonce produit de juin 2025 promet l'inverse
+ * de ce que documente l'API encore utilisée.
+ *
+ * Valeurs vérifiées en C8.4 (developers.facebook.com, 2026-08-27), Facebook
+ * relu le 2026-09-11.
  */
 
 export type MediaKind = "video" | "image";
@@ -107,12 +114,22 @@ export type PlatformMediaRules = {
    */
   maxWidth?: number;
   maxHeight?: number;
+  /**
+   * Precision ajoutee au refus « trop long ».
+   *
+   * Sans elle, le message impute la limite A LA PLATEFORME — « Facebook
+   * n'accepte pas plus de 90 secondes » — alors qu'elle est celle de
+   * l'ENDPOINT par lequel POSTYNC publie. La nuance n'est pas academique :
+   * l'utilisateur qui vient de mettre en ligne une video de 3 minutes depuis
+   * l'application Facebook conclurait, a juste titre, que POSTYNC raconte
+   * n'importe quoi.
+   */
+  maxDurationDetail?: string;
   allowedMimeTypes: readonly string[];
 };
 
 /**
- * Reels. Les écarts entre plateformes sont réels et documentés :
- * Facebook impose le 9:16 et 90 secondes, Instagram est très permissif.
+ * Reels. Les écarts entre plateformes sont réels et documentés.
  */
 export const REEL_RULES: Partial<Record<SocialPlatform, PlatformMediaRules>> = {
   instagram: {
@@ -120,9 +137,43 @@ export const REEL_RULES: Partial<Record<SocialPlatform, PlatformMediaRules>> = {
     maxDuration: 900,
     allowedMimeTypes: ["video/mp4", "video/quicktime"],
   },
+  /**
+   * Facebook — endpoint `POST /<PAGE_ID>/video_reels`, **Graph API v25.0**
+   * (`src/server/social/providers/facebook.ts`). Guide officiel
+   * « Publish a Reel » (developers.facebook.com/docs/video-api/guides/
+   * reels-publishing), relu le 2026-09-11 : « 3 to 90 seconds », « 9 x 16 »,
+   * « 1080 x 1920 pixels (recommended). Minimum is 540 x 960 pixels ».
+   *
+   * ───────────────────────────────────────────────────────────────────────
+   * POURQUOI 90 SECONDES MALGRÉ L'ANNONCE DE JUIN 2025
+   * ───────────────────────────────────────────────────────────────────────
+   *
+   * Meta a annoncé le 17 juin 2025 que toutes les nouvelles vidéos Facebook
+   * seraient partagées comme Reels, « without any length or format
+   * restrictions ». Cette annonce porte sur l'APPLICATION Facebook — la
+   * manière dont les vidéos sont créées et distribuées pour le grand public.
+   * Elle ne mentionne ni le Graph API, ni `/video_reels`, et la documentation
+   * développeur de l'endpoint que nous utilisons continue d'afficher
+   * « 3 to 90 seconds » et « 9 x 16 ».
+   *
+   * Relever la constante sur la foi d'un communiqué produit reviendrait à
+   * laisser passer une vidéo que Meta refusera AU MOMENT DE PUBLIER, avec un
+   * code d'erreur opaque — exactement ce que ce module existe pour éviter.
+   * La contrainte reste donc celle de l'endpoint, et le message DIT laquelle,
+   * au lieu de prétendre que « Facebook » refuse les vidéos longues.
+   *
+   * À REVOIR quand l'un de ces trois faits change : la doc de
+   * `reels-publishing` annonce une durée supérieure ; une publication réelle
+   * de plus de 90 s aboutit sur une Page de test ; ou POSTYNC bascule sur
+   * `POST /<PAGE_ID>/videos`, qui ne documente aucun plafond de durée mais
+   * ne produit pas un Reel.
+   */
   facebook: {
     minDuration: 3,
     maxDuration: 90,
+    maxDurationDetail:
+      "C'est la limite de l'API Reels (/video_reels, Graph v25.0) par laquelle " +
+      "POSTYNC publie ; l'application Facebook, elle, accepte des vidéos plus longues.",
     requiredAspectRatio: { value: 9 / 16, tolerance: 0.02, label: "9:16" },
     minWidth: 540,
     minHeight: 960,
@@ -236,7 +287,9 @@ export function checkMediaForPlatform(
       if (rules.maxDuration !== undefined && asset.duration_seconds > rules.maxDuration) {
         violations.push({
           code: "too_long",
-          message: `${platformLabel} n'accepte pas plus de ${formatDuration(rules.maxDuration)}.`,
+          message:
+            `${platformLabel} n'accepte pas plus de ${formatDuration(rules.maxDuration)}.` +
+            (rules.maxDurationDetail ? ` ${rules.maxDurationDetail}` : ""),
         });
       }
     }
