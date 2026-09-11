@@ -35,6 +35,19 @@ export type MediaAsset = {
 
 /** Types acceptés, alignés sur les plafonds posés au niveau du bucket. */
 export const ALLOWED_MIME_TYPES = ["video/mp4", "video/quicktime", "image/jpeg"] as const;
+
+/**
+ * Sous-ensemble VIDÉO des types acceptés.
+ *
+ * Utile aux points d'entrée qui ne promettent que de la vidéo — le bouton
+ * « Importer une vidéo » de la vue d'ensemble — pour que le sélecteur de
+ * fichiers propose exactement ce que le libellé annonce. Dérivé d'une seule
+ * liste : ajouter un format vidéo à `ALLOWED_MIME_TYPES` ne doit pas obliger à
+ * penser à une seconde liste.
+ */
+export const VIDEO_MIME_TYPES = ALLOWED_MIME_TYPES.filter(
+  (type) => mimeToKind(type) === "video",
+);
 export const MAX_BYTE_SIZE = 314_572_800; // 300 Mo
 
 export function mimeToKind(mimeType: string): MediaKind | null {

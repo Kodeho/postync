@@ -1,3 +1,5 @@
+import { SocialIcon } from "@/components/ui/social-icon";
+import type { SocialPlatform } from "@/types/platform";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { AlertTriangle, Plus, Send, Share2 } from "lucide-react";
@@ -9,6 +11,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { Panel } from "@/components/ui/panel";
 import { StatCard } from "@/components/ui/stat-card";
+import { ImportVideoButton } from "@/features/media/import-video-button";
 import { getWorkspaceContext, userFirstName } from "@/features/workspaces/context";
 import { workspaceHref } from "@/features/workspaces/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -101,10 +104,18 @@ export default async function OverviewPage({ params }: PageProps<"/app/[workspac
         title={firstName ? `Bonjour ${firstName}` : "Bonjour"}
         description="Voici ce qui se passe aujourd'hui sur vos réseaux."
         actions={
-          <ButtonLink href={workspaceHref(slug, "publish")}>
-            <Plus aria-hidden="true" className="h-4 w-4" />
-            Nouvelle publication
-          </ButtonLink>
+          /*
+            Deux actions principales, dans l'ordre du parcours : on importe un
+            média AVANT de pouvoir le publier. Sur mobile elles s'empilent et
+            occupent toute la largeur, l'en-tete passant lui-meme en colonne.
+          */
+          <>
+            <ImportVideoButton workspaceSlug={slug} />
+            <ButtonLink href={workspaceHref(slug, "publish")}>
+              <Plus aria-hidden="true" className="h-4 w-4" />
+              Nouvelle publication
+            </ButtonLink>
+          </>
         }
       />
 
@@ -163,9 +174,12 @@ export default async function OverviewPage({ params }: PageProps<"/app/[workspac
                 className="flex items-start justify-between gap-3 rounded-md border border-border bg-surface p-2.5 text-sm"
               >
                 <span className="min-w-0 flex-1">
-                  <span className="block font-medium text-foreground">
-                    {PLATFORM_LABELS[publication.platform]} ·{" "}
-                    {MEDIA_KIND_LABELS[publication.media_kind]}
+                  <span className="flex items-center gap-1.5 font-medium text-foreground">
+                    <SocialIcon platform={publication.platform} className="h-4 w-4 shrink-0" />
+                    <span className="truncate">
+                      {PLATFORM_LABELS[publication.platform]} ·{" "}
+                      {MEDIA_KIND_LABELS[publication.media_kind]}
+                    </span>
                   </span>
                   {publication.caption ? (
                     <span className="block truncate text-xs text-muted">{publication.caption}</span>
@@ -223,9 +237,12 @@ function LigneAttention({
     return (
       <div className="flex items-start justify-between gap-3 rounded-md border border-border bg-surface p-2.5 text-sm">
         <span className="min-w-0 flex-1">
-          <span className="block font-medium text-foreground">
-            {PLATFORM_LABELS[item.platform as keyof typeof PLATFORM_LABELS] ?? item.platform} ·{" "}
-            {item.label}
+          <span className="flex items-center gap-1.5 font-medium text-foreground">
+            <SocialIcon platform={item.platform as SocialPlatform} className="h-4 w-4 shrink-0" />
+            <span className="truncate">
+              {PLATFORM_LABELS[item.platform as keyof typeof PLATFORM_LABELS] ?? item.platform} ·{" "}
+              {item.label}
+            </span>
           </span>
           <span className="block text-xs text-muted">
             Ce compte ne peut plus publier. Reconnectez-le pour reprendre.
@@ -249,9 +266,12 @@ function LigneAttention({
   return (
     <div className="flex items-start justify-between gap-3 rounded-md border border-border bg-surface p-2.5 text-sm">
       <span className="min-w-0 flex-1">
-        <span className="block font-medium text-foreground">
-          {PLATFORM_LABELS[item.platform as keyof typeof PLATFORM_LABELS] ?? item.platform} —
-          publication non parue
+        <span className="flex items-center gap-1.5 font-medium text-foreground">
+          <SocialIcon platform={item.platform as SocialPlatform} className="h-4 w-4 shrink-0" />
+          <span className="truncate">
+            {PLATFORM_LABELS[item.platform as keyof typeof PLATFORM_LABELS] ?? item.platform} —
+            publication non parue
+          </span>
         </span>
         <span className="block truncate text-xs text-muted">
           {heure(item.occurredAt, timeZone)}

@@ -18,7 +18,14 @@ export function PageHeader({ title, description, actions }: PageHeaderProps) {
           <p className="mt-1 max-w-2xl text-sm text-muted">{description}</p>
         ) : null}
       </div>
-      {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
+      {/*
+        `flex-wrap` : deux actions cote a cote debordent sur un telephone. Elles
+        passent a la ligne plutot que de rogner le titre ou de forcer un
+        defilement horizontal.
+      */}
+      {actions ? (
+        <div className="flex shrink-0 flex-wrap items-start gap-2">{actions}</div>
+      ) : null}
     </div>
   );
 }
