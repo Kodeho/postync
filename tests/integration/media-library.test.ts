@@ -154,7 +154,7 @@ describe.skipIf(!CONFIGURED)("C9 — médiathèque (bucket et base réels)", () 
   // `service_role`. Le protocole TUS de Supabase n'accepte pas d'URL signée ;
   // il s'authentifie avec le JWT de l'utilisateur et passe donc par RLS.
   // Ouvrir `insert` était la condition pour que les grosses vidéos soient
-  // reprenables (migration 20260911120000).
+  // reprenables (migration 20260911135637).
   //
   // La contrepartie doit être mesurée, pas supposée : ce qui suit vérifie que
   // l'ouverture se limite au dossier du workspace de l'utilisateur, pour les

@@ -24,7 +24,7 @@ import { requireSupabaseEnv } from "@/lib/supabase/env";
  *
  * TUS N'ACCEPTE PAS D'URL SIGNÉE. Son endpoint s'authentifie avec le JWT de
  * l'utilisateur et passe par RLS — d'où la politique `media_resumable_insert`
- * (migration 20260911120000), qui n'ouvre QUE l'insertion, et seulement dans
+ * (migration 20260911135637), qui n'ouvre QUE l'insertion, et seulement dans
  * le dossier du workspace. Le jeton employé ici est le jeton de session du
  * navigateur : la clé `service_role` n'apparaît nulle part dans ce module, ni
  * dans aucun module qu'il importe.
